@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { Alert, Button, Card, Descriptions, Modal, Progress, Space, Spin, Tag, Typography } from 'antd'
-import { ArrowLeftOutlined, BulbOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Descriptions, Modal, Progress, Space, Spin, Tag, Typography, message } from 'antd'
+import { ArrowLeftOutlined, BulbOutlined, CopyOutlined, DownloadOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import { STATUS_LABEL, TASK_STATUS_LABEL, type ProjectDetail, type TaskView } from '../types'
 import CardList from '../components/CardList'
 import QuizMode from '../components/QuizMode'
 import ResumeSection from '../components/ResumeSection'
+import { buildProjectMarkdown, downloadText } from '../utils/export'
 
 export default function ProjectPage() {
   const { id } = useParams()
@@ -69,6 +70,25 @@ export default function ProjectPage() {
     }
   }
 
+  const exportMarkdown = () => {
+    if (!detail) return
+    downloadText(`${detail.name || 'project'}.md`, buildProjectMarkdown(detail))
+    message.success('已导出 Markdown')
+  }
+
+  const copyResume = async () => {
+    if (!detail?.resume?.starContent) {
+      message.warning('暂无简历内容')
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(detail.resume.starContent)
+      message.success('简历已复制到剪贴板')
+    } catch {
+      message.error('复制失败,请手动选择复制')
+    }
+  }
+
   if (error && !detail) {
     return (
       <div style={{ maxWidth: 960, margin: '32px auto', padding: '0 24px' }}>
@@ -103,6 +123,16 @@ export default function ProjectPage() {
           <Tag color={detail.status === 'FAILED' ? 'red' : detail.status === 'DONE' ? 'green' : 'blue'}>
             {STATUS_LABEL[detail.status] ?? detail.status}
           </Tag>
+          {detail.cards.length > 0 && (
+            <>
+              <Button icon={<DownloadOutlined />} onClick={exportMarkdown}>
+                导出 Markdown
+              </Button>
+              <Button icon={<CopyOutlined />} onClick={copyResume}>
+                复制简历
+              </Button>
+            </>
+          )}
         </Space>
 
         {error && <Alert type="error" showIcon message="出错" description={error} />}
