@@ -39,6 +39,18 @@ MAX_STAT_FILES = 3000  # 超过则停止逐行统计,避免大仓库卡死
 MAX_CORE_FILES = 20
 MAX_REPO_BYTES = 100 * 1024 * 1024  # 100MB 提示阈值
 
+# 常见克隆失败原因 → 友好中文提示(按关键词匹配 stderr)
+NETWORK_HINTS = {
+    "could not resolve host": "DNS 解析失败,请检查网络连接,或更换 DNS(如 223.5.5.5 / 114.114.114.114)",
+    "schannel": "TLS 连接被中断,github 等境外站点可能被网络策略阻断,请配置代理或改用可访问的镜像地址",
+    "certificate": "SSL 证书验证失败,请检查系统时间或代理证书,也可考虑 git -c http.sslVerify=false 临时绕过",
+    "unable to access": "仓库地址不可达,请检查网络/代理,或改用可访问的镜像(如 gitee)",
+    "connection was reset": "连接被重置,境外站点被网络策略阻断,请配置代理后重试",
+    "timed out": "连接超时,请检查网络后重试",
+    "authentication failed": "认证失败,私有仓库需要在 URL 中携带凭证",
+    "repository not found": "仓库不存在或已被删除,请检查 URL 是否正确",
+}
+
 # 测试文件特征:对"核心文件"提取应降权(学习时优先看生产代码)
 TEST_PATTERNS = (
     r"[/\\](test|tests|__tests__)[/\\]",
@@ -67,8 +79,26 @@ def clone_repo(repo_url: str, dest_dir: str | os.PathLike, *, depth: int = 1) ->
     try:
         Repo.clone_from(repo_url, str(target), depth=depth, single_branch=True)
     except GitCommandError as e:
-        raise RepoError(f"克隆失败({repo_url}): {e}") from e
+        raise RepoError(friendly_clone_error(repo_url, e)) from e
     return str(target)
+
+
+def friendly_clone_error(repo_url: str, err: GitCommandError) -> str:
+    """把 git 原始报错翻译为友好中文提示(网络类问题给出解决建议)。"""
+    raw = str(err)
+    stderr = ""
+    try:
+        stderr = err.stderr.decode("utf-8", errors="ignore") if isinstance(err.stderr, bytes) else str(err.stderr)
+    except Exception:
+        stderr = ""
+    combined = (raw + "\n" + stderr).lower()
+
+    hints = []
+    for keyword, hint in NETWORK_HINTS.items():
+        if keyword in combined and hint not in hints:
+            hints.append(hint)
+    hint_text = "；".join(hints) or "请检查仓库地址与网络连接后重试"
+    return f"克隆失败({repo_url}): {hint_text}\n原始错误: {stderr.strip()[:300]}"
 
 
 def _walk(root: Path) -> list[Path]:

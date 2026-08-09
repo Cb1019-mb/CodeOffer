@@ -59,3 +59,27 @@ def test_skips_ignored_dirs(sample_repo: Path):
 def test_missing_dir_raises(tmp_path: Path):
     with pytest.raises(RepoError):
         analyze_repo(str(tmp_path / "nope"))
+
+
+def test_clone_error_translated_to_friendly_hint(monkeypatch, tmp_path: Path):
+    """网络类克隆错误应翻译为友好中文提示(而非原始英文报错)。"""
+    from git import GitCommandError, Repo
+
+    def boom(*args, **kwargs):
+        err = GitCommandError(
+            "git clone",
+            128,
+            stderr=b"fatal: unable to access 'https://github.com/x/y/': schannel: server closed abruptly (missing close_notify)",
+        )
+        raise err
+
+    monkeypatch.setattr(Repo, "clone_from", boom)
+    from services.repo import clone_repo
+
+    with pytest.raises(RepoError) as exc_info:
+        clone_repo("https://github.com/x/y", str(tmp_path))
+    msg = str(exc_info.value)
+    # 应包含友好提示(网络阻断/不可达),而不是只有原始英文
+    assert "克隆失败" in msg
+    assert "schannel" not in msg.split("原始错误")[0].lower() or "TLS" in msg or "代理" in msg
+    assert "代理" in msg or "DNS" in msg or "不可达" in msg
