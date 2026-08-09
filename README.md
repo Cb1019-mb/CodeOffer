@@ -53,6 +53,9 @@ cd frontend
 npm install
 npm run dev          # http://localhost:5173
 
+# 3b. 生产模式:构建前端并复制到后端托管(只需一次;改前端后重跑)
+.\scripts\build-frontend.ps1
+
 # 4. 打开浏览器
 #    http://localhost:8080  (后端托管)
 #    http://localhost:5173  (开发模式)
