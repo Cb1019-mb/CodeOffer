@@ -83,3 +83,26 @@ def test_clone_error_translated_to_friendly_hint(monkeypatch, tmp_path: Path):
     assert "克隆失败" in msg
     assert "schannel" not in msg.split("原始错误")[0].lower() or "TLS" in msg or "代理" in msg
     assert "代理" in msg or "DNS" in msg or "不可达" in msg
+
+
+def test_clone_failure_cleans_remnant_dir(monkeypatch, tmp_path: Path):
+    """克隆失败后应清理残留半成品目录,避免下次重试报 already exists。"""
+    from git import GitCommandError, Repo
+
+    import hashlib
+
+    url = "https://gitee.com/x/y"
+    name = hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
+    remnant = tmp_path / name
+    remnant.mkdir()
+    (remnant / "partial").write_text("x", encoding="utf-8")
+
+    def boom(*args, **kwargs):
+        raise GitCommandError("git clone", 128, stderr=b"fatal: could not resolve host")
+
+    monkeypatch.setattr(Repo, "clone_from", boom)
+    from services.repo import clone_repo
+
+    with pytest.raises(RepoError):
+        clone_repo(url, str(tmp_path))
+    assert not remnant.exists(), "残留目录应被清理"

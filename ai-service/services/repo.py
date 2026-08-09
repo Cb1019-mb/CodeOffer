@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shutil
 from pathlib import Path
 
 from git import GitCommandError, Repo
@@ -79,6 +80,8 @@ def clone_repo(repo_url: str, dest_dir: str | os.PathLike, *, depth: int = 1) ->
     try:
         Repo.clone_from(repo_url, str(target), depth=depth, single_branch=True)
     except GitCommandError as e:
+        # 清理失败残留的半成品目录,避免下次克隆报 "already exists and is not an empty directory"
+        shutil.rmtree(target, ignore_errors=True)
         raise RepoError(friendly_clone_error(repo_url, e)) from e
     return str(target)
 
