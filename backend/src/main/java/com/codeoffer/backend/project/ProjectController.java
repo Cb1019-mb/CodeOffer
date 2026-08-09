@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 项目 API:录入(触发生成)、列表(含掌握度徽标)、详情、卡片/简历/面试题、确认入库。
@@ -167,6 +169,31 @@ public class ProjectController {
             projects.save(p);
         }
         return detail(id);
+    }
+
+    /** 删除项目及全部关联数据(卡片/简历/任务),不可恢复。 */
+    @DeleteMapping("/{id}")
+    @Transactional
+    public void delete(@PathVariable Long id) {
+        requireProject(id);
+        cards.deleteByProjectId(id);
+        resumes.findByProjectId(id).ifPresent(resumes::delete);
+        tasks.findByProjectIdOrderByIdDesc(id).forEach(tasks::delete);
+        projects.deleteById(id);
+    }
+
+    /** 重新生成整个项目:重置状态并异步重跑全链路(旧卡片会被替换)。 */
+    @PostMapping("/{id}/regenerate")
+    public CreateResponse regenerate(@PathVariable Long id) {
+        Project p = requireProject(id);
+        p.setStatus(ProjectStatus.PENDING);
+        p.setUpdatedAt(Instant.now());
+        projects.save(p);
+        GenTask task = new GenTask();
+        task.setProjectId(id);
+        task = tasks.save(task);
+        generate.runFullGeneration(id, task.getId());
+        return new CreateResponse(id, task.getId(), p.getStatus().name());
     }
 
     // ------------------------------------------------------------ M4 编辑与重新生成

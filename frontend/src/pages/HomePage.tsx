@@ -8,10 +8,12 @@ import {
   Form,
   Input,
   List,
+  Popconfirm,
   Row,
   Space,
   Tag,
   Typography,
+  message,
 } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
@@ -45,6 +47,16 @@ export default function HomePage() {
       setError((e as Error).message)
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const del = async (id: number) => {
+    try {
+      await api.deleteProject(id)
+      message.success('项目已删除')
+      load()
+    } catch (e) {
+      message.error((e as Error).message)
     }
   }
 
@@ -93,6 +105,18 @@ export default function HomePage() {
                 <Button key="open" type="link" onClick={() => navigate(`/projects/${p.id}`)}>
                   查看
                 </Button>,
+                <Popconfirm
+                  key="del"
+                  title="删除该项目?"
+                  description="将同时删除其卡片、简历与面试题,不可恢复。"
+                  okText="删除"
+                  okButtonProps={{ danger: true }}
+                  onConfirm={() => del(p.id)}
+                >
+                  <Button type="link" danger>
+                    删除
+                  </Button>
+                </Popconfirm>,
               ]}
             >
               <List.Item.Meta

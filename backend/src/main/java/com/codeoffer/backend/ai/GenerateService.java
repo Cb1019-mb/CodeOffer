@@ -39,6 +39,7 @@ public class GenerateService {
     private final GenTaskRepository tasks;
     private final AiServiceClient ai;
     private final ObjectMapper mapper;
+    private final GenerationWriter writer;
 
     public GenerateService(
             ProjectRepository projects,
@@ -46,13 +47,15 @@ public class GenerateService {
             ResumeEntryRepository resumes,
             GenTaskRepository tasks,
             AiServiceClient ai,
-            ObjectMapper mapper) {
+            ObjectMapper mapper,
+            GenerationWriter writer) {
         this.projects = projects;
         this.cards = cards;
         this.resumes = resumes;
         this.tasks = tasks;
         this.ai = ai;
         this.mapper = mapper;
+        this.writer = writer;
     }
 
     @Async
@@ -73,17 +76,26 @@ public class GenerateService {
 
             // 3) 生成
             transition(project, task, ProjectStatus.GENERATING, 50);
-            saveKnowledgeCards(projectId, ai.knowledgeCards(repoInfo, CARD_TYPES));
+            Map<String, Object> cardsResp = ai.knowledgeCards(repoInfo, CARD_TYPES);
+            writer.replaceCards(projectId, castCards(cardsResp.get("cards")));
             task.setProgress(70);
             tasks.save(task);
 
-            saveFlowCard(projectId, ai.flowDiagram(repoInfo));
+            Map<String, Object> flowResp = ai.flowDiagram(repoInfo);
+            writer.saveFlowCard(
+                    projectId,
+                    (String) flowResp.getOrDefault("title", "核心流程图"),
+                    buildFlowContent(flowResp));
             task.setProgress(80);
             tasks.save(task);
 
             Map<String, Object> resumeResp = ai.resume(repoInfo);
             Map<String, Object> qaResp = ai.interviewQuestions(repoInfo);
-            saveResumeEntry(projectId, resumeResp, qaResp);
+            writer.saveResumeEntry(
+                    projectId,
+                    json(resumeResp) + "\n\n" + json(qaResp),
+                    json(resumeResp.get("star")),
+                    json(qaResp.get("questions")));
             task.setProgress(90);
             tasks.save(task);
 
@@ -112,74 +124,8 @@ public class GenerateService {
     }
 
     @SuppressWarnings("unchecked")
-    private void saveKnowledgeCards(Long projectId, Map<String, Object> resp) {
-        cards.deleteByProjectId(projectId);
-        List<Map<String, Object>> list = (List<Map<String, Object>>) resp.get("cards");
-        if (list == null) {
-            return;
-        }
-        for (Map<String, Object> item : list) {
-            KnowledgeCard card = new KnowledgeCard();
-            card.setProjectId(projectId);
-            card.setType(toCardType((String) item.get("type")));
-            card.setTitle((String) item.get("title"));
-            String content = (String) item.get("content");
-            card.setAiDraft(content);
-            card.setContent(content);
-            cards.save(card);
-        }
-    }
-
-    private void saveFlowCard(Long projectId, Map<String, Object> resp) {
-        String title = (String) resp.getOrDefault("title", "核心流程图");
-        String description = (String) resp.getOrDefault("description", "");
-        String mermaid = (String) resp.getOrDefault("mermaid", "");
-        String content = "# " + title + "\n\n" + description + "\n\n```mermaid\n" + mermaid + "\n```";
-        cards.findByProjectIdAndType(projectId, CardType.FLOW_DIAGRAM).ifPresentOrElse(
-                card -> {
-                    card.setAiDraft(content);
-                    if (!card.isEdited()) {
-                        card.setContent(content);
-                    }
-                    cards.save(card);
-                },
-                () -> {
-                    KnowledgeCard card = new KnowledgeCard();
-                    card.setProjectId(projectId);
-                    card.setType(CardType.FLOW_DIAGRAM);
-                    card.setTitle(title);
-                    card.setAiDraft(content);
-                    card.setContent(content);
-                    cards.save(card);
-                });
-    }
-
-    private void saveResumeEntry(Long projectId, Map<String, Object> resumeResp, Map<String, Object> qaResp) {
-        resumes.findByProjectId(projectId).ifPresentOrElse(
-                entry -> {
-                    entry.setAiDraft(json(resumeResp) + "\n\n" + json(qaResp));
-                    if (!entry.isEdited()) {
-                        entry.setStarContent(json(resumeResp.get("star")));
-                        entry.setInterviewQas(json(qaResp.get("questions")));
-                    }
-                    resumes.save(entry);
-                },
-                () -> {
-                    ResumeEntry entry = new ResumeEntry();
-                    entry.setProjectId(projectId);
-                    entry.setAiDraft(json(resumeResp) + "\n\n" + json(qaResp));
-                    entry.setStarContent(json(resumeResp.get("star")));
-                    entry.setInterviewQas(json(qaResp.get("questions")));
-                    resumes.save(entry);
-                });
-    }
-
-    private CardType toCardType(String type) {
-        try {
-            return CardType.valueOf(type.toUpperCase());
-        } catch (Exception e) {
-            return CardType.TAKEAWAY;
-        }
+    private List<Map<String, Object>> castCards(Object raw) {
+        return raw == null ? List.of() : (List<Map<String, Object>>) raw;
     }
 
     private String json(Object value) {

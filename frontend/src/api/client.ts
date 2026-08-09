@@ -37,6 +37,9 @@ export const api = {
   getTask: (id: number) => request<TaskView>(`/api/projects/${id}/task`),
   confirm: (id: number) =>
     request<ProjectDetail>(`/api/projects/${id}/confirm`, { method: 'POST' }),
+  deleteProject: (id: number) => request<void>(`/api/projects/${id}`, { method: 'DELETE' }),
+  regenerateProject: (id: number) =>
+    request<CreateResponse>(`/api/projects/${id}/regenerate`, { method: 'POST' }),
 
   // M4:卡片编辑与重新生成
   editCard: (id: number, cardId: number, content: string) =>

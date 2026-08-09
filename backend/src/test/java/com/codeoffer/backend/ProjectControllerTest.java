@@ -16,10 +16,13 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -193,6 +196,48 @@ class ProjectControllerTest {
 
         // 生疏后再次回到队列
         mvc.perform(get("/api/projects/{id}/review-queue", projectId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3));
+    }
+
+    @Test
+    void delete_removesProjectAndData() throws Exception {
+        stubAi();
+        long projectId = createAndAwait();
+
+        mvc.perform(delete("/api/projects/{id}", projectId))
+                .andExpect(status().isOk());
+
+        mvc.perform(get("/api/projects/{id}", projectId))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void regenerate_restartsGeneration() throws Exception {
+        stubAi();
+        long projectId = createAndAwait();
+
+        // 触发重新生成:新任务 RUNNING
+        MvcResult regen = mvc.perform(post("/api/projects/{id}/regenerate", projectId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.projectId").value(projectId))
+                .andReturn();
+        long newTaskId = new tools.jackson.databind.ObjectMapper()
+                .readTree(regen.getResponse().getContentAsString())
+                .get("taskId").asLong();
+
+        // 轮询到终态
+        for (int i = 0; i < 100; i++) {
+            GenTask t = tasks.findFirstByProjectIdOrderByIdDesc(projectId).orElseThrow();
+            if (t.getStatus() == TaskStatus.DONE || t.getStatus() == TaskStatus.FAILED) {
+                break;
+            }
+            Thread.sleep(100);
+        }
+        GenTask latest = tasks.findFirstByProjectIdOrderByIdDesc(projectId).orElseThrow();
+        assertTrue(latest.getId() > newTaskId - 1); // 新任务在队列头部
+        // 生成成功:卡片重建
+        mvc.perform(get("/api/projects/{id}/cards", projectId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(3));
     }

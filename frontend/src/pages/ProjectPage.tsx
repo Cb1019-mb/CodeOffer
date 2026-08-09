@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { Alert, Button, Card, Descriptions, Modal, Progress, Space, Spin, Tag, Typography, message } from 'antd'
-import { ArrowLeftOutlined, BulbOutlined, CopyOutlined, DownloadOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Descriptions, Modal, Popconfirm, Progress, Space, Spin, Tag, Typography, message } from 'antd'
+import { ArrowLeftOutlined, BulbOutlined, CopyOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import { STATUS_LABEL, TASK_STATUS_LABEL, type ProjectDetail, type TaskView } from '../types'
 import CardList from '../components/CardList'
@@ -17,6 +17,8 @@ export default function ProjectPage() {
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [quizOpen, setQuizOpen] = useState(false)
+  const [regenerating, setRegenerating] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const refresh = useCallback(async () => {
     try {
@@ -57,7 +59,7 @@ export default function ProjectPage() {
       stopped = true
       if (interval) clearInterval(interval)
     }
-  }, [projectId])
+  }, [projectId, refreshKey])
 
   const onConfirm = async () => {
     setConfirming(true)
@@ -74,6 +76,19 @@ export default function ProjectPage() {
     if (!detail) return
     downloadText(`${detail.name || 'project'}.md`, buildProjectMarkdown(detail))
     message.success('已导出 Markdown')
+  }
+
+  const regenerate = async () => {
+    setRegenerating(true)
+    try {
+      await api.regenerateProject(projectId)
+      message.success('已开始重新生成,进度将实时更新')
+      setRefreshKey((k) => k + 1)
+    } catch (e) {
+      message.error((e as Error).message)
+    } finally {
+      setRegenerating(false)
+    }
   }
 
   const copyResume = async () => {
@@ -133,6 +148,16 @@ export default function ProjectPage() {
               </Button>
             </>
           )}
+          <Popconfirm
+            title="重新生成整个项目?"
+            description="将重新克隆解析并替换全部卡片、简历与面试题。"
+            okText="重新生成"
+            onConfirm={regenerate}
+          >
+            <Button icon={<ReloadOutlined />} loading={regenerating} type={detail.status === 'FAILED' ? 'primary' : 'default'}>
+              重新生成项目
+            </Button>
+          </Popconfirm>
         </Space>
 
         {error && <Alert type="error" showIcon message="出错" description={error} />}
