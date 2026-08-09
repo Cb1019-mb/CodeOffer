@@ -18,7 +18,7 @@
 | 前端 | React 18 + Vite + Ant Design 5 | SPA;`mermaid` 运行时渲染流程图;`react-markdown` 渲染卡片 |
 | Java | Spring Boot 4.1 + Java 21 | Web、JPA;SQLite 用 `org.xerial:sqlite-jdbc` + Hibernate dialect |
 | Python | FastAPI + uvicorn + httpx + GitPython | AI 服务;LLM 网关走 OpenAI 兼容格式端点 |
-| 部署 | Docker Compose | `java`(8080) + `python`(8000);前端构建产物由 Java 静态托管 |
+| 部署 | Docker Compose | `java`(8080) + `python`(8001);前端构建产物由 Java 静态托管 |
 | 配置 | 根目录 `config/` | `.env` 存 LLM API key(不入库) |
 
 **LLM 网关设计**:国内各家(DeepSeek/通义/智谱)均提供 OpenAI 兼容端点,网关统一按 `/v1/chat/completions` 调用,`base_url + api_key + model` 三个配置项即可切换;响应统一校验 JSON 并修复重试。

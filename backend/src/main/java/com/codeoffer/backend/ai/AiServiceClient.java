@@ -25,7 +25,7 @@ public class AiServiceClient {
 
     public AiServiceClient(
             ObjectMapper mapper,
-            @Value("${ai-service.url:http://127.0.0.1:8000}") String baseUrl) {
+            @Value("${ai-service.url:http://127.0.0.1:8001}") String baseUrl) {
         this.mapper = mapper;
         // 强制 HTTP/1.1:uvicorn(无 --http2)对 JDK HttpClient 的 HTTP/2 升级协商处理不佳,
         // 会导致请求体被丢弃(422 body missing)。

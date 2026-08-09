@@ -27,7 +27,7 @@ Java 层 · Spring Boot 4.1 + Java 21(端口 8080)
   └─ AiServiceClient:HTTP/1.1 调用 Python 服务
    │ HTTP(JSON)
    ▼
-Python 层 · FastAPI(端口 8000)
+Python 层 · FastAPI(端口 8001)
   ├─ 仓库抓取:GitPython 浅克隆(--depth 1,本地 hash 缓存)
   ├─ 代码解析:目录树 / 语言统计 / 核心文件启发式提取
   ├─ 提示词编排:知识卡片 / 流程图 / STAR 简历 / 面试题 / 体检报告
@@ -45,7 +45,7 @@ Python 层 · FastAPI(端口 8000)
 Copy-Item config\.env.example config\.env
 #    编辑 config\.env:填入 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL
 
-# 2. 一键启动(后端 8080 + AI 服务 8000)
+# 2. 一键启动(后端 8080 + AI 服务 8001)
 .\scripts\dev-up.ps1
 
 # 3. 前端开发模式(可选,生产模式前端产物由后端托管)

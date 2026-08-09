@@ -33,10 +33,10 @@ if (-not $RepoUrl) {
     Write-Host "[1/6] 使用外部仓库: $RepoUrl"
 }
 
-# 2) 启动 AI 服务(8000)
-Write-Host "[2/6] 启动 AI 服务 (8000)..."
+# 2) 启动 AI 服务(8001)
+Write-Host "[2/6] 启动 AI 服务 (8001)..."
 Start-Process -FilePath (Join-Path $ws "ai-service\.venv\Scripts\python.exe") `
-    -ArgumentList "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8000" `
+    -ArgumentList "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8001" `
     -WorkingDirectory (Join-Path $ws "ai-service") -WindowStyle Hidden `
     -RedirectStandardOutput (Join-Path $logs "ai-service.log") `
     -RedirectStandardError (Join-Path $logs "ai-service.err.log")
@@ -57,7 +57,7 @@ for ($i = 0; $i -lt 60; $i++) {
     Start-Sleep -Seconds 2
     if (-not $aiOk) {
         try {
-            $h = Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/health" -TimeoutSec 2
+            $h = Invoke-RestMethod -Uri "http://127.0.0.1:8001/api/health" -TimeoutSec 2
             $aiOk = $h.status -eq "ok"
         } catch { }
     }
@@ -119,7 +119,7 @@ if ($task.status -eq "DONE") {
 
 if (-not $KeepRunning) {
     Write-Host "清理服务进程..."
-    foreach ($port in 8000, 8080) {
+    foreach ($port in 8001, 8080) {
         Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
             ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
     }

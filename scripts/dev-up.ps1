@@ -1,12 +1,12 @@
 ﻿# CodeOffer 本地一键启动脚本(开发模式)
-# 启动:AI 服务(8000) + Java 后端(8080);前端开发服务器可选(见输出提示)
+# 启动:AI 服务(8001) + Java 后端(8080);前端开发服务器可选(见输出提示)
 $ErrorActionPreference = "Stop"
 $ws = Split-Path -Parent $PSScriptRoot
 $logs = Join-Path $ws "data\logs"
 New-Item -ItemType Directory -Path $logs -Force | Out-Null
 
 # 0) 清理旧服务进程:端口被占用时新进程会启动失败,导致"改了配置/代码但重启不生效"
-foreach ($port in 8000, 8080) {
+foreach ($port in 8001, 8080) {
     Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
         ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
 }
@@ -21,10 +21,10 @@ if (-not (Test-Path (Join-Path $ws "ai-service\.venv"))) {
     Write-Host "[1/3] Python 虚拟环境已就绪" -ForegroundColor DarkGray
 }
 
-# 2) 启动 AI 服务(8000)
-Write-Host "[2/3] 启动 AI 服务 http://127.0.0.1:8000 ..." -ForegroundColor Cyan
+# 2) 启动 AI 服务(8001)
+Write-Host "[2/3] 启动 AI 服务 http://127.0.0.1:8001 ..." -ForegroundColor Cyan
 Start-Process -FilePath (Join-Path $ws "ai-service\.venv\Scripts\python.exe") `
-    -ArgumentList "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8000", "--reload" `
+    -ArgumentList "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8001", "--reload" `
     -WorkingDirectory (Join-Path $ws "ai-service") -WindowStyle Hidden `
     -RedirectStandardOutput (Join-Path $logs "ai-service.log") `
     -RedirectStandardError (Join-Path $logs "ai-service.err.log")
@@ -39,7 +39,7 @@ Start-Process -FilePath "cmd.exe" `
 
 Write-Host ""
 Write-Host "CodeOffer 开发环境启动中:" -ForegroundColor Green
-Write-Host "  - AI 服务    http://127.0.0.1:8000/api/health" -ForegroundColor Green
+Write-Host "  - AI 服务    http://127.0.0.1:8001/api/health" -ForegroundColor Green
 Write-Host "  - 后端       http://127.0.0.1:8080/api/health" -ForegroundColor Green
 Write-Host "  - 日志目录   $logs"
 Write-Host "  - 前端开发   cd frontend && npm run dev (端口 5173);生产模式前端产物由后端托管"
