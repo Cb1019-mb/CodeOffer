@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -108,5 +109,83 @@ class ProjectControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"repoUrl\": \"   \"}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void editCard_marksEditedAndPersists() throws Exception {
+        stubAi();
+        long projectId = createAndAwait();
+        long cardId = firstCardId(projectId);
+
+        // 编辑第一张卡片
+        mvc.perform(put("/api/projects/{id}/cards/{cardId}/content", projectId, cardId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\": \"用户手写内容\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.edited").value(true))
+                .andExpect(jsonPath("$.content").value("用户手写内容"));
+
+        // 重新生成:已编辑内容不被覆盖
+        mvc.perform(post("/api/projects/{id}/cards/{cardId}/regenerate", projectId, cardId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.edited").value(true))
+                .andExpect(jsonPath("$.content").value("用户手写内容"))
+                .andExpect(jsonPath("$.aiDraft").value("内容1"));
+    }
+
+    @Test
+    void userInput_appendsOnRunGuideCard() throws Exception {
+        stubAi();
+        long projectId = createAndAwait();
+        long cardId = firstCardId(projectId);
+
+        mvc.perform(post("/api/projects/{id}/cards/{cardId}/user-input", projectId, cardId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"input\": \"JDK 需 17+\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userInput").value("JDK 需 17+"))
+                .andExpect(jsonPath("$.edited").value(true));
+    }
+
+    @Test
+    void editResumeStar_persists() throws Exception {
+        stubAi();
+        long projectId = createAndAwait();
+
+        mvc.perform(put("/api/projects/{id}/resume/star", projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"starContent\": \"{\\\"summary\\\":\\\"改过的亮点\\\"}\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.edited").value(true))
+                .andExpect(jsonPath("$.starContent").value("{\"summary\":\"改过的亮点\"}"));
+    }
+
+    /** 返回项目第一张卡片的 id。 */
+    private long firstCardId(long projectId) throws Exception {
+        String json = mvc.perform(get("/api/projects/{id}/cards", projectId))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        return new tools.jackson.databind.ObjectMapper().readTree(json).get(0).get("id").asLong();
+    }
+
+    /** 创建项目并轮询到任务终态,返回 projectId。 */
+    private long createAndAwait() throws Exception {        MvcResult created = mvc.perform(post("/api/projects")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"repoUrl\": \"https://github.com/octocat/Hello-World\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        long projectId = new tools.jackson.databind.ObjectMapper()
+                .readTree(created.getResponse().getContentAsString())
+                .get("projectId").asLong();
+        for (int i = 0; i < 100; i++) {
+            GenTask t = tasks.findFirstByProjectIdOrderByIdDesc(projectId).orElseThrow();
+            if (t.getStatus() == TaskStatus.DONE || t.getStatus() == TaskStatus.FAILED) {
+                break;
+            }
+            Thread.sleep(100);
+        }
+        return projectId;
     }
 }

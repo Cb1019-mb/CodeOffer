@@ -27,6 +27,7 @@ public final class ApiViews {
             String title,
             String content,
             String aiDraft,
+            String userInput,
             boolean edited,
             int mastery,
             Instant nextReview) {

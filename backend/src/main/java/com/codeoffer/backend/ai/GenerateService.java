@@ -11,6 +11,7 @@ import com.codeoffer.backend.project.ProjectRepository;
 import com.codeoffer.backend.project.ProjectStatus;
 import com.codeoffer.backend.project.ResumeEntry;
 import com.codeoffer.backend.project.ResumeEntryRepository;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -55,8 +56,7 @@ public class GenerateService {
     }
 
     @Async
-    public void runFullGeneration(Long projectId, Long taskId) {
-        Project project = projects.findById(projectId).orElseThrow();
+    public void runFullGeneration(Long projectId, Long taskId) {        Project project = projects.findById(projectId).orElseThrow();
         GenTask task = tasks.findById(taskId).orElseThrow();
         try {
             // 1) 克隆
@@ -195,5 +195,78 @@ public class GenerateService {
             return null;
         }
         return s.length() <= max ? s : s.substring(0, max);
+    }
+
+    // ------------------------------------------------------------ 局部重新生成(M4)
+
+    /** 重新生成单张卡片;已编辑过的卡片只更新 AI 草稿,不覆盖用户定稿。 */
+    @SuppressWarnings("unchecked")
+    public KnowledgeCard regenerateCard(Long cardId) {
+        KnowledgeCard card = cards.findById(cardId).orElseThrow();
+        Project project = projects.findById(card.getProjectId()).orElseThrow();
+        if (project.getRepoInfo() == null) {
+            throw new IllegalStateException("项目尚未完成解析,无法重新生成");
+        }
+        Map<String, Object> repoInfo = readRepoInfo(project);
+        String newDraft;
+        if (card.getType() == CardType.FLOW_DIAGRAM) {
+            newDraft = buildFlowContent(ai.flowDiagram(repoInfo));
+        } else {
+            Map<String, Object> resp = ai.knowledgeCards(repoInfo, List.of(card.getType().name().toLowerCase()));
+            List<Map<String, Object>> items = (List<Map<String, Object>>) resp.get("cards");
+            if (items == null || items.isEmpty()) {
+                throw new IllegalStateException("AI 未返回卡片内容");
+            }
+            Map<String, Object> item = items.get(0);
+            card.setTitle((String) item.getOrDefault("title", card.getTitle()));
+            newDraft = (String) item.get("content");
+        }
+        card.setAiDraft(newDraft);
+        if (!card.isEdited()) {
+            card.setContent(newDraft);
+        }
+        card.setUpdatedAt(Instant.now());
+        return cards.save(card);
+    }
+
+    /** 重新生成简历与面试题;已编辑的字段不被覆盖。 */
+    @SuppressWarnings("unchecked")
+    public ResumeEntry regenerateResume(Long projectId) {
+        Project project = projects.findById(projectId).orElseThrow();
+        if (project.getRepoInfo() == null) {
+            throw new IllegalStateException("项目尚未完成解析,无法重新生成");
+        }
+        Map<String, Object> repoInfo = readRepoInfo(project);
+        Map<String, Object> resumeResp = ai.resume(repoInfo);
+        Map<String, Object> qaResp = ai.interviewQuestions(repoInfo);
+
+        ResumeEntry entry = resumes.findByProjectId(projectId).orElseGet(() -> {
+            ResumeEntry e = new ResumeEntry();
+            e.setProjectId(projectId);
+            return e;
+        });
+        entry.setAiDraft(json(resumeResp) + "\n\n" + json(qaResp));
+        if (!entry.isEdited()) {
+            entry.setStarContent(json(resumeResp.get("star")));
+            entry.setInterviewQas(json(qaResp.get("questions")));
+        }
+        entry.setUpdatedAt(Instant.now());
+        return resumes.save(entry);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> readRepoInfo(Project project) {
+        try {
+            return mapper.readValue(project.getRepoInfo(), mapper.getTypeFactory().constructMapType(Map.class, String.class, Object.class));
+        } catch (Exception e) {
+            throw new IllegalStateException("仓库解析信息损坏: " + e.getMessage(), e);
+        }
+    }
+
+    private static String buildFlowContent(Map<String, Object> resp) {
+        String title = (String) resp.getOrDefault("title", "核心流程图");
+        String description = (String) resp.getOrDefault("description", "");
+        String mermaid = (String) resp.getOrDefault("mermaid", "");
+        return "# " + title + "\n\n" + description + "\n\n```mermaid\n" + mermaid + "\n```";
     }
 }

@@ -1,5 +1,12 @@
 // API 客户端:相对路径经 Vite proxy 转发到 Java 后端(8080)
-import type { CreateResponse, ProjectDetail, ProjectView, TaskView } from '../types'
+import type {
+  CardView,
+  CreateResponse,
+  ProjectDetail,
+  ProjectView,
+  ResumeView,
+  TaskView,
+} from '../types'
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const resp = await fetch(path, {
@@ -30,4 +37,29 @@ export const api = {
   getTask: (id: number) => request<TaskView>(`/api/projects/${id}/task`),
   confirm: (id: number) =>
     request<ProjectDetail>(`/api/projects/${id}/confirm`, { method: 'POST' }),
+
+  // M4:卡片编辑与重新生成
+  editCard: (id: number, cardId: number, content: string) =>
+    request<CardView>(`/api/projects/${id}/cards/${cardId}/content`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    }),
+  adoptDraft: (id: number, cardId: number) =>
+    request<CardView>(`/api/projects/${id}/cards/${cardId}/adopt`, { method: 'POST' }),
+  regenerateCard: (id: number, cardId: number) =>
+    request<CardView>(`/api/projects/${id}/cards/${cardId}/regenerate`, { method: 'POST' }),
+  addUserInput: (id: number, cardId: number, input: string) =>
+    request<CardView>(`/api/projects/${id}/cards/${cardId}/user-input`, {
+      method: 'POST',
+      body: JSON.stringify({ input }),
+    }),
+
+  // M4:简历编辑与重新生成
+  editResumeStar: (id: number, starContent: string) =>
+    request<ResumeView>(`/api/projects/${id}/resume/star`, {
+      method: 'PUT',
+      body: JSON.stringify({ starContent }),
+    }),
+  regenerateResume: (id: number) =>
+    request<ResumeView>(`/api/projects/${id}/resume/regenerate`, { method: 'POST' }),
 }

@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Alert, Button, Card, Descriptions, Progress, Space, Spin, Tag, Typography } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import { STATUS_LABEL, TASK_STATUS_LABEL, type ProjectDetail, type TaskView } from '../types'
+import CardList from '../components/CardList'
+import ResumeSection from '../components/ResumeSection'
 
 export default function ProjectPage() {
   const { id } = useParams()
@@ -13,6 +15,17 @@ export default function ProjectPage() {
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
 
+  const refresh = useCallback(async () => {
+    try {
+      const d = await api.getProject(projectId)
+      setDetail(d)
+      return d
+    } catch (e) {
+      setError((e as Error).message)
+      return null
+    }
+  }, [projectId])
+
   useEffect(() => {
     if (!Number.isFinite(projectId)) {
       setError('无效的项目 ID')
@@ -21,7 +34,7 @@ export default function ProjectPage() {
     let stopped = false
     let interval: ReturnType<typeof setInterval> | undefined
 
-    const refresh = async () => {
+    const poll = async () => {
       try {
         const [d, t] = await Promise.all([api.getProject(projectId), api.getTask(projectId)])
         if (stopped) return
@@ -35,8 +48,8 @@ export default function ProjectPage() {
       }
     }
 
-    refresh()
-    interval = setInterval(refresh, 3000) // 轮询任务进度
+    poll()
+    interval = setInterval(poll, 3000) // 轮询任务进度
     return () => {
       stopped = true
       if (interval) clearInterval(interval)
@@ -94,10 +107,7 @@ export default function ProjectPage() {
 
         {running && (
           <Card title="AI 处理进度">
-            <Progress
-              percent={task?.progress ?? 0}
-              status={task?.status === 'FAILED' ? 'exception' : 'active'}
-            />
+            <Progress percent={task?.progress ?? 0} status="active" />
             <Typography.Text type="secondary">
               当前阶段:{STATUS_LABEL[detail.status] ?? detail.status}(任务
               {TASK_STATUS_LABEL[task?.status ?? 'RUNNING']})
@@ -120,7 +130,7 @@ export default function ProjectPage() {
         {detail.status === 'REVIEW' && (
           <Card title="待确认">
             <Typography.Paragraph type="secondary">
-              AI 已生成知识卡片、简历描述与面试题库(见下方),确认后正式入库。
+              AI 已生成知识卡片、简历描述与面试题库(见下方),确认后正式入库。入库后仍可编辑与重新生成。
             </Typography.Paragraph>
             <Button type="primary" loading={confirming} onClick={onConfirm}>
               确认入库
@@ -129,20 +139,11 @@ export default function ProjectPage() {
         )}
 
         <Card title={`知识卡片(${detail.cards.length})`}>
-          {detail.cards.length === 0 ? (
-            <Typography.Text type="secondary">暂无卡片</Typography.Text>
-          ) : (
-            <Space direction="vertical" style={{ width: '100%' }} size="small">
-              {detail.cards.map((c) => (
-                <Card key={c.id} size="small" title={<Space><Tag>{c.typeLabel}</Tag>{c.title}</Space>}>
-                  <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
-                    {(c.content ?? c.aiDraft ?? '').slice(0, 500)}
-                  </Typography.Paragraph>
-                  {c.edited && <Tag color="orange">已编辑</Tag>}
-                </Card>
-              ))}
-            </Space>
-          )}
+          <CardList projectId={projectId} cards={detail.cards} onChanged={refresh} />
+        </Card>
+
+        <Card title="简历与面试题">
+          <ResumeSection projectId={projectId} resume={detail.resume} onChanged={refresh} />
         </Card>
       </Space>
     </div>

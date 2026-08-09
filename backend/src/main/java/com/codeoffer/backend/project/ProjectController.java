@@ -15,6 +15,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -86,6 +87,7 @@ public class ProjectController {
                         c.getTitle(),
                         c.getContent(),
                         c.getAiDraft(),
+                        c.getUserInput(),
                         c.isEdited(),
                         c.getMastery(),
                         c.getNextReview()))
@@ -130,6 +132,7 @@ public class ProjectController {
                         c.getTitle(),
                         c.getContent(),
                         c.getAiDraft(),
+                        c.getUserInput(),
                         c.isEdited(),
                         c.getMastery(),
                         c.getNextReview()))
@@ -164,11 +167,120 @@ public class ProjectController {
         return detail(id);
     }
 
+    // ------------------------------------------------------------ M4 编辑与重新生成
+
+    public record EditContentRequest(String content) {
+    }
+
+    public record UserInputRequest(String input) {
+    }
+
+    public record EditStarRequest(String starContent) {
+    }
+
+    /** 编辑卡片定稿:标记 edited,重新生成不再覆盖。 */
+    @PutMapping("/{id}/cards/{cardId}/content")
+    public CardView editCard(@PathVariable Long id, @PathVariable Long cardId, @RequestBody EditContentRequest req) {
+        requireProject(id);
+        KnowledgeCard card = requireCard(cardId);
+        if (!card.getProjectId().equals(id)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "卡片不属于该项目");
+        }
+        if (req.content() == null || req.content().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "内容不能为空");
+        }
+        card.setContent(req.content());
+        card.setEdited(true);
+        card.setUpdatedAt(Instant.now());
+        return toCardView(cards.save(card));
+    }
+
+    /** 采纳 AI 草稿为定稿(标记为编辑过,防止下次重新生成覆盖)。 */
+    @PostMapping("/{id}/cards/{cardId}/adopt")
+    public CardView adoptDraft(@PathVariable Long id, @PathVariable Long cardId) {
+        requireProject(id);
+        KnowledgeCard card = requireCard(cardId);
+        if (card.getAiDraft() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "暂无 AI 草稿");
+        }
+        card.setContent(card.getAiDraft());
+        card.setEdited(true);
+        card.setUpdatedAt(Instant.now());
+        return toCardView(cards.save(card));
+    }
+
+    /** 重新生成单卡:已编辑卡片只更新草稿。 */
+    @PostMapping("/{id}/cards/{cardId}/regenerate")
+    public CardView regenerateCard(@PathVariable Long id, @PathVariable Long cardId) {
+        requireProject(id);
+        return toCardView(generate.regenerateCard(cardId));
+    }
+
+    /** 用户补充输入(如运行指南的踩坑记录):JSON 存 userInput。 */
+    @PostMapping("/{id}/cards/{cardId}/user-input")
+    public CardView addUserInput(@PathVariable Long id, @PathVariable Long cardId, @RequestBody UserInputRequest req) {
+        requireProject(id);
+        KnowledgeCard card = requireCard(cardId);
+        String existing = card.getUserInput() == null ? "" : card.getUserInput();
+        String merged = (existing + "\n" + (req.input() == null ? "" : req.input())).trim();
+        card.setUserInput(merged);
+        if (!card.isEdited()) {
+            card.setEdited(true); // 用户补充视为编辑,防止覆盖
+        }
+        card.setUpdatedAt(Instant.now());
+        return toCardView(cards.save(card));
+    }
+
+    /** 编辑简历 STAR 内容。 */
+    @PutMapping("/{id}/resume/star")
+    public ResumeView editResume(@PathVariable Long id, @RequestBody EditStarRequest req) {
+        requireProject(id);
+        ResumeEntry entry = resumes.findByProjectId(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "尚无简历产出"));
+        if (req.starContent() == null || req.starContent().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "内容不能为空");
+        }
+        entry.setStarContent(req.starContent());
+        entry.setEdited(true);
+        entry.setUpdatedAt(Instant.now());
+        return toResumeView(resumes.save(entry));
+    }
+
+    /** 重新生成简历与面试题(已编辑字段不被覆盖)。 */
+    @PostMapping("/{id}/resume/regenerate")
+    public ResumeView regenerateResume(@PathVariable Long id) {
+        requireProject(id);
+        return toResumeView(generate.regenerateResume(id));
+    }
+
     // ------------------------------------------------------------ helpers
 
     private Project requireProject(Long id) {
         return projects.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "项目不存在: " + id));
+    }
+
+    private KnowledgeCard requireCard(Long cardId) {
+        return cards.findById(cardId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "卡片不存在: " + cardId));
+    }
+
+    private CardView toCardView(KnowledgeCard c) {
+        return new CardView(
+                c.getId(),
+                c.getType().name(),
+                c.getType().getLabel(),
+                c.getTitle(),
+                c.getContent(),
+                c.getAiDraft(),
+                c.getUserInput(),
+                c.isEdited(),
+                c.getMastery(),
+                c.getNextReview());
+    }
+
+    private ResumeView toResumeView(ResumeEntry r) {
+        return new ResumeView(r.getStarContent(), r.getInterviewQas(), r.isEdited());
     }
 
     private ProjectView toView(Project p) {

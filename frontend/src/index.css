@@ -7,3 +7,35 @@ body {
   margin: 0;
   background: #f5f5f5;
 }
+
+/* Markdown 渲染基础样式 */
+.markdown-body h1 {
+  font-size: 18px;
+  margin: 8px 0;
+}
+.markdown-body h2 {
+  font-size: 16px;
+  margin: 8px 0;
+}
+.markdown-body h3 {
+  font-size: 14px;
+  margin: 6px 0;
+}
+.markdown-body p {
+  margin: 6px 0;
+}
+.markdown-body pre {
+  background: #f6f8fa;
+  padding: 8px;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.markdown-body code {
+  background: #f6f8fa;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 20px;
+}

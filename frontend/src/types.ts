@@ -25,6 +25,7 @@ export interface CardView {
   title: string
   content: string | null
   aiDraft: string | null
+  userInput: string | null
   edited: boolean
   mastery: number
   nextReview: string | null
