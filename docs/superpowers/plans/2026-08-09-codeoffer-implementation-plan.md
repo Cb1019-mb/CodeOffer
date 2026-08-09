@@ -16,7 +16,7 @@
 | 层 | 技术 | 说明 |
 |---|---|---|
 | 前端 | React 18 + Vite + Ant Design 5 | SPA;`mermaid` 运行时渲染流程图;`react-markdown` 渲染卡片 |
-| Java | Spring Boot 3.3 + Java 17 | Web、JPA;SQLite 用 `org.xerial:sqlite-jdbc` + Hibernate dialect |
+| Java | Spring Boot 4.1 + Java 21 | Web、JPA;SQLite 用 `org.xerial:sqlite-jdbc` + Hibernate dialect |
 | Python | FastAPI + uvicorn + httpx + GitPython | AI 服务;LLM 网关走 OpenAI 兼容格式端点 |
 | 部署 | Docker Compose | `java`(8080) + `python`(8000);前端构建产物由 Java 静态托管 |
 | 配置 | 根目录 `config/` | `.env` 存 LLM API key(不入库) |
