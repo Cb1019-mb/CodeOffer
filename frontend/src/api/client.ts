@@ -23,7 +23,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     }
     throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
   }
-  return resp.json() as Promise<T>
+  // 空响应体(如 DELETE 成功)不解析 JSON,避免 "Unexpected end of JSON input"
+  const text = await resp.text()
+  if (!text) {
+    return undefined as T
+  }
+  return JSON.parse(text) as T
 }
 
 export const api = {
