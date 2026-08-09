@@ -1,8 +1,18 @@
 spring:
   application:
     name: backend
+  datasource:
+    url: jdbc:sqlite:${DATA_DIR:../data}/codeoffer.db
+    driver-class-name: org.sqlite.JDBC
+  jpa:
+    hibernate:
+      ddl-auto: update
+    database-platform: org.hibernate.community.dialect.SQLiteDialect
   mvc:
     static-path-pattern: /**
+
+ai-service:
+  url: ${AI_SERVICE_URL:http://127.0.0.1:8000}
 
 management:
   endpoints:

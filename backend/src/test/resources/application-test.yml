@@ -1,0 +1,11 @@
+# 测试 profile:使用 H2 内存库,避免污染本地 SQLite
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+
+ai-service:
+  url: http://127.0.0.1:8000
