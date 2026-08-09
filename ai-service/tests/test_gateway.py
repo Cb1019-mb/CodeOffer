@@ -104,3 +104,34 @@ def test_missing_api_key_raises(monkeypatch):
     monkeypatch.delenv("LLM_API_KEY")
     with pytest.raises(LLMError, match="LLM_API_KEY"):
         chat_json([], cfg=_cfg())
+
+
+def test_verify_ssl_false_disables_cert_check(monkeypatch):
+    """LLM_VERIFY_SSL=false 时,verify 参数应传给 httpx.Client。"""
+    from llm import gateway
+
+    captured = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(gateway.httpx, "Client", FakeClient)
+    gateway._client(10.0, None, verify=False)
+    assert captured.get("verify") is False
+    gateway._client(10.0, None, verify=True)
+    assert captured.get("verify") is True
+
+
+def test_certificate_hint_mentions_workaround():
+    from llm.gateway import _certificate_hint, LLMError
+
+    hint = _certificate_hint(Exception("CERTIFICATE_VERIFY_FAILED certificate verify failed: unable to get local issuer certificate"))
+    assert "LLM_VERIFY_SSL=false" in hint
+    assert _certificate_hint(LLMError("普通错误")) == ""

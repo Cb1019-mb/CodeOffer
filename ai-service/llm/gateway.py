@@ -98,7 +98,21 @@ def _post(
             logger.warning("LLM 调用失败(第 %d/%d 次):%s,%.1fs 后重试", attempt, MAX_RETRIES, last_err, sleep)
             time.sleep(sleep)
 
-    raise LLMError(f"LLM 调用失败(已重试 {MAX_RETRIES} 次): {last_err}") from last_err
+    raise LLMError(
+        f"LLM 调用失败(已重试 {MAX_RETRIES} 次): {last_err}{_certificate_hint(last_err)}"
+    ) from last_err
+
+
+def _certificate_hint(err: Exception | None) -> str:
+    """SSL 证书验证失败时给出可操作的绕过提示。"""
+    if err is None:
+        return ""
+    if "certificate verify failed" in str(err).lower() or "certificate_verify_failed" in str(err).lower():
+        return (
+            "。提示:当前环境无法验证 LLM API 的证书(常见于代理/抓包/防火墙拦截)。"
+            "如确认服务可靠,可在 config/.env 中设置 LLM_VERIFY_SSL=false 绕过证书验证后重启"
+        )
+    return ""
 
 
 def _parse_json(content: str) -> dict[str, Any]:
