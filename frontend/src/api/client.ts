@@ -62,4 +62,12 @@ export const api = {
     }),
   regenerateResume: (id: number) =>
     request<ResumeView>(`/api/projects/${id}/resume/regenerate`, { method: 'POST' }),
+
+  // M5:自测与掌握度
+  reviewCard: (id: number, cardId: number, known: boolean) =>
+    request<CardView>(`/api/projects/${id}/cards/${cardId}/review`, {
+      method: 'POST',
+      body: JSON.stringify({ known }),
+    }),
+  reviewQueue: (id: number) => request<CardView[]>(`/api/projects/${id}/review-queue`),
 }

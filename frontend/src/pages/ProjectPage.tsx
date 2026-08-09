@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { Alert, Button, Card, Descriptions, Progress, Space, Spin, Tag, Typography } from 'antd'
-import { ArrowLeftOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Descriptions, Modal, Progress, Space, Spin, Tag, Typography } from 'antd'
+import { ArrowLeftOutlined, BulbOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import { STATUS_LABEL, TASK_STATUS_LABEL, type ProjectDetail, type TaskView } from '../types'
 import CardList from '../components/CardList'
+import QuizMode from '../components/QuizMode'
 import ResumeSection from '../components/ResumeSection'
 
 export default function ProjectPage() {
@@ -14,6 +15,7 @@ export default function ProjectPage() {
   const [task, setTask] = useState<TaskView | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
+  const [quizOpen, setQuizOpen] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
@@ -138,9 +140,27 @@ export default function ProjectPage() {
           </Card>
         )}
 
-        <Card title={`知识卡片(${detail.cards.length})`}>
+        <Card
+          title={`知识卡片(${detail.cards.length})`}
+          extra={
+            <Button icon={<BulbOutlined />} disabled={detail.cards.length === 0} onClick={() => setQuizOpen(true)}>
+              开始自测
+            </Button>
+          }
+        >
           <CardList projectId={projectId} cards={detail.cards} onChanged={refresh} />
         </Card>
+
+        <Modal
+          title="主动回忆自测"
+          open={quizOpen}
+          footer={null}
+          width={800}
+          onCancel={() => setQuizOpen(false)}
+          destroyOnClose
+        >
+          <QuizMode projectId={projectId} onDone={() => setQuizOpen(false)} />
+        </Modal>
 
         <Card title="简历与面试题">
           <ResumeSection projectId={projectId} resume={detail.resume} onChanged={refresh} />

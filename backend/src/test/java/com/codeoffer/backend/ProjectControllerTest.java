@@ -160,6 +160,43 @@ class ProjectControllerTest {
                 .andExpect(jsonPath("$.starContent").value("{\"summary\":\"改过的亮点\"}"));
     }
 
+    @Test
+    void reviewCard_updatesMasteryAndQueue() throws Exception {
+        stubAi();
+        long projectId = createAndAwait();
+        long cardId = firstCardId(projectId);
+
+        // 初始:全部卡片都在复习队列(mastery=0)
+        mvc.perform(get("/api/projects/{id}/review-queue", projectId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3));
+
+        // 自评「掌握」:mastery 升为 1,nextReview 设为 1 天后
+        mvc.perform(post("/api/projects/{id}/cards/{cardId}/review", projectId, cardId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"known\": true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mastery").value(1))
+                .andExpect(jsonPath("$.nextReview").exists());
+
+        // 该卡片(1 天后复习)不再出现在待复习队列
+        mvc.perform(get("/api/projects/{id}/review-queue", projectId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2));
+
+        // 自评「生疏」:mastery 回落,立即复习
+        mvc.perform(post("/api/projects/{id}/cards/{cardId}/review", projectId, cardId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"known\": false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mastery").value(0));
+
+        // 生疏后再次回到队列
+        mvc.perform(get("/api/projects/{id}/review-queue", projectId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3));
+    }
+
     /** 返回项目第一张卡片的 id。 */
     private long firstCardId(long projectId) throws Exception {
         String json = mvc.perform(get("/api/projects/{id}/cards", projectId))
