@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import mermaid from 'mermaid'
 
-mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' })
+mermaid.initialize({ startOnLoad: false, theme: 'default' })
 
 let mermaidSeq = 0
 

@@ -4,6 +4,9 @@ spring:
   datasource:
     url: jdbc:sqlite:${DATA_DIR:../data}/codeoffer.db
     driver-class-name: org.sqlite.JDBC
+    hikari:
+      # 并发写时等待锁最多 5 秒,避免直接 SQLITE_BUSY 报错
+      connection-init-sql: "PRAGMA busy_timeout=5000"
   jpa:
     hibernate:
       ddl-auto: update
