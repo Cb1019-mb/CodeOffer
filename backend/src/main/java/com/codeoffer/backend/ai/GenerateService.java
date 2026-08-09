@@ -14,8 +14,10 @@ import com.codeoffer.backend.project.ResumeEntryRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
@@ -41,6 +43,9 @@ public class GenerateService {
     private final ObjectMapper mapper;
     private final GenerationWriter writer;
 
+    /** 全局生成锁:SQLite 单写者,WAL 下并发写会触发 SQLITE_BUSY_SNAPSHOT,同一时间只允许一个生成任务 */
+    private final ReentrantLock generationLock = new ReentrantLock();
+
     public GenerateService(
             ProjectRepository projects,
             KnowledgeCardRepository cards,
@@ -59,7 +64,16 @@ public class GenerateService {
     }
 
     @Async
-    public void runFullGeneration(Long projectId, Long taskId) {        Project project = projects.findById(projectId).orElseThrow();
+    public void runFullGeneration(Long projectId, Long taskId) {
+        generationLock.lock();
+        try {
+            doRunFullGeneration(projectId, taskId);
+        } finally {
+            generationLock.unlock();
+        }
+    }
+
+    private void doRunFullGeneration(Long projectId, Long taskId) {        Project project = projects.findById(projectId).orElseThrow();
         GenTask task = tasks.findById(taskId).orElseThrow();
         try {
             // 1) 克隆
@@ -77,25 +91,25 @@ public class GenerateService {
             // 3) 生成
             transition(project, task, ProjectStatus.GENERATING, 50);
             Map<String, Object> cardsResp = ai.knowledgeCards(repoInfo, CARD_TYPES);
-            writer.replaceCards(projectId, castCards(cardsResp.get("cards")));
+            retryOnBusy(() -> writer.replaceCards(projectId, castCards(cardsResp.get("cards"))));
             task.setProgress(70);
             tasks.save(task);
 
             Map<String, Object> flowResp = ai.flowDiagram(repoInfo);
-            writer.saveFlowCard(
+            retryOnBusy(() -> writer.saveFlowCard(
                     projectId,
                     (String) flowResp.getOrDefault("title", "核心流程图"),
-                    buildFlowContent(flowResp));
+                    buildFlowContent(flowResp)));
             task.setProgress(80);
             tasks.save(task);
 
             Map<String, Object> resumeResp = ai.resume(repoInfo);
             Map<String, Object> qaResp = ai.interviewQuestions(repoInfo);
-            writer.saveResumeEntry(
+            retryOnBusy(() -> writer.saveResumeEntry(
                     projectId,
                     json(resumeResp) + "\n\n" + json(qaResp),
                     json(resumeResp.get("star")),
-                    json(qaResp.get("questions")));
+                    json(qaResp.get("questions"))));
             task.setProgress(90);
             tasks.save(task);
 
@@ -121,6 +135,36 @@ public class GenerateService {
         projects.save(project);
         task.setProgress(progress);
         tasks.save(task);
+    }
+
+    /**
+     * 写操作遇 SQLite 锁冲突(SQLITE_BUSY / SQLITE_BUSY_SNAPSHOT)时重试。
+     * busy_timeout 对 SNAPSHOT 错误无效(等待无法解决快照过期),需事务级重试。
+     */
+    private void retryOnBusy(Runnable op) {
+        int attempts = 0;
+        while (true) {
+            try {
+                op.run();
+                return;
+            } catch (DataAccessException e) {
+                if (isBusyError(e) && ++attempts < 3) {
+                    try {
+                        Thread.sleep(300L * attempts);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw e;
+                    }
+                    continue;
+                }
+                throw e;
+            }
+        }
+    }
+
+    private static boolean isBusyError(DataAccessException e) {
+        String msg = e.getMessage();
+        return msg != null && (msg.contains("SQLITE_BUSY") || msg.contains("database is locked"));
     }
 
     @SuppressWarnings("unchecked")
