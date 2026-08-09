@@ -5,6 +5,13 @@ $ws = Split-Path -Parent $PSScriptRoot
 $logs = Join-Path $ws "data\logs"
 New-Item -ItemType Directory -Path $logs -Force | Out-Null
 
+# 0) 清理旧服务进程:端口被占用时新进程会启动失败,导致"改了配置/代码但重启不生效"
+foreach ($port in 8000, 8080) {
+    Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
+        ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
+}
+Start-Sleep -Seconds 1
+
 # 1) 准备 Python 虚拟环境
 if (-not (Test-Path (Join-Path $ws "ai-service\.venv"))) {
     Write-Host "[1/3] 创建 Python 虚拟环境..." -ForegroundColor Cyan
