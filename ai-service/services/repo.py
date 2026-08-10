@@ -61,6 +61,9 @@ LANG_NAMES = {
     ".sql": "SQL", ".md": "Markdown", ".sh": "Shell", ".yml": "YAML", ".json": "JSON",
 }
 
+# 计入技术栈主语言的扩展名(真正的编程语言;png/txt/pdf/ipynb 等素材文件不计入)
+CODE_LANG_EXTS = {".py", ".go", ".js", ".ts", ".java", ".kt", ".rs", ".rb", ".php", ".c", ".cpp", ".cs", ".swift", ".vue", ".jsx", ".tsx", ".sql", ".html", ".css", ".sh"}
+
 # 测试文件特征:对"核心文件"提取应降权(学习时优先看生产代码)
 TEST_PATTERNS = (
     r"[/\\](test|tests|__tests__)[/\\]",
@@ -240,7 +243,7 @@ def _extract_description(root: Path, rels: list[Path]) -> str:
                 with (root / rel).open("r", encoding="utf-8", errors="ignore") as fh:
                     for line in fh:
                         line = line.strip()
-                        if not line or line.startswith(("#", "!", "[")):
+                        if not line or line.startswith(("#", "!", "[", "<")):
                             continue
                         # [text](url) → text,去掉多余空白
                         cleaned = re.sub(r"\[([^]]+)]\([^)]*\)", r"\1", line)
@@ -309,11 +312,12 @@ def _parse_deps(root: Path, rels: list[Path]) -> list[str]:
 
 
 def _tech_stack(root: Path, rels: list[Path], languages: list[dict]) -> list[str]:
-    """技术栈(按项目使用主次排列):主语言(按代码行数)→ 核心依赖 → 开发依赖。"""
+    """技术栈(按项目使用主次排列):主语言(按代码行数,仅编程语言)→ 核心依赖 → 开发依赖。"""
     langs = [
         LANG_NAMES.get(lang["ext"], lang["ext"].lstrip("."))
-        for lang in languages[:3]
-    ]
+        for lang in languages
+        if lang["ext"] in CODE_LANG_EXTS
+    ][:3]
     deps = _parse_deps(root, rels)
     merged = langs + deps
     return merged[:10]
