@@ -129,9 +129,10 @@ def test_verify_ssl_false_disables_cert_check(monkeypatch):
     assert captured.get("verify") is True
 
 
-def test_certificate_hint_mentions_workaround():
+def test_certificate_hint_gives_actionable_advice():
     from llm.gateway import _certificate_hint, LLMError
 
     hint = _certificate_hint(Exception("CERTIFICATE_VERIFY_FAILED certificate verify failed: unable to get local issuer certificate"))
-    assert "LLM_VERIFY_SSL=false" in hint
+    assert "LLM_VERIFY_SSL=false" not in hint  # 不再诱导关闭证书校验
+    assert "CA" in hint or "代理" in hint or "系统时间" in hint
     assert _certificate_hint(LLMError("普通错误")) == ""

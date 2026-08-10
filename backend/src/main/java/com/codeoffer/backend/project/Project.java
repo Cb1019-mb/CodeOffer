@@ -41,8 +41,8 @@ public class Project {
     @Column(length = 4000)
     private String healthReport;
 
-    /** Python 解析结果 JSON(供重新生成时复用) */
-    @Column(length = 10000)
+    /** Python 解析结果 JSON(供重新生成时复用);大仓库解析树可能很大,不设实际长度上限 */
+    @Column(length = 1_000_000)
     private String repoInfo;
 
     /** Python 克隆返回的本地目录 */

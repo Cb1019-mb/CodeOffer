@@ -7,7 +7,12 @@ from pydantic import BaseModel, Field
 
 
 class CloneRequest(BaseModel):
-    repo_url: str = Field(..., description="GitHub 仓库地址,如 https://github.com/octocat/Hello-World")
+    repo_url: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+        description="GitHub 仓库地址,如 https://github.com/octocat/Hello-World",
+    )
 
 
 class CloneResponse(BaseModel):
@@ -16,7 +21,7 @@ class CloneResponse(BaseModel):
 
 
 class AnalyzeRequest(BaseModel):
-    repo_dir: str
+    repo_dir: str = Field(..., min_length=1, max_length=1000)
 
 
 class HealthReportRequest(BaseModel):

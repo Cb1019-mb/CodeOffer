@@ -18,10 +18,10 @@ export function buildProjectMarkdown(detail: ProjectDetail): string {
   }
 
   if (detail.resume?.starContent) {
-    lines.push('## STAR 简历', '', detail.resume.starContent, '')
+    lines.push('## STAR 简历', '', '```json', detail.resume.starContent, '```', '')
   }
   if (detail.resume?.interviewQas) {
-    lines.push('## 面试题库', '', detail.resume.interviewQas, '')
+    lines.push('## 面试题库', '', '```json', detail.resume.interviewQas, '```', '')
   }
   return lines.join('\n')
 }
@@ -36,5 +36,6 @@ export function downloadText(filename: string, text: string): void {
   document.body.appendChild(a)
   a.click()
   a.remove()
-  URL.revokeObjectURL(url)
+  // 延迟释放,避免个别浏览器(Safari/大文件)在下载开始前就撤销导致失败
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }

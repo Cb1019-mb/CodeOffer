@@ -9,4 +9,6 @@ public interface GenTaskRepository extends JpaRepository<GenTask, Long> {
     Optional<GenTask> findFirstByProjectIdOrderByIdDesc(Long projectId);
 
     List<GenTask> findByProjectIdOrderByIdDesc(Long projectId);
+
+    List<GenTask> findByStatus(GenTask.TaskStatus status);
 }

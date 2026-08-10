@@ -19,11 +19,25 @@ def test_health():
     assert resp.json()["service"] == "ai-service"
 
 
-def test_analyze_endpoint(tmp_path: Path):
-    (tmp_path / "README.md").write_text("hello", encoding="utf-8")
-    resp = client.post("/api/repos/analyze", json={"repo_dir": str(tmp_path)})
+def test_analyze_endpoint(tmp_path: Path, monkeypatch):
+    # analyze 仅允许缓存目录内路径,把 REPO_DATA_DIR 指到临时目录以通过校验
+    monkeypatch.setattr(main_module, "REPO_DATA_DIR", str(tmp_path))
+    repo = tmp_path / "sample"
+    repo.mkdir()
+    (repo / "README.md").write_text("hello", encoding="utf-8")
+    resp = client.post("/api/repos/analyze", json={"repo_dir": str(repo)})
     assert resp.status_code == 200
-    assert resp.json()["name"] == tmp_path.name
+    assert resp.json()["name"] == repo.name
+
+
+def test_analyze_outside_cache_dir_rejected(tmp_path: Path, monkeypatch):
+    # 任意目录(缓存目录之外)应被拒绝,防任意文件读取
+    monkeypatch.setattr(main_module, "REPO_DATA_DIR", str(tmp_path / "cache"))
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "README.md").write_text("secret", encoding="utf-8")
+    resp = client.post("/api/repos/analyze", json={"repo_dir": str(outside)})
+    assert resp.status_code == 422
 
 
 def test_analyze_missing_dir():

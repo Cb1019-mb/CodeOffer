@@ -80,9 +80,9 @@ def clone(req: CloneRequest) -> CloneResponse:
 
 @app.post("/api/repos/analyze")
 def analyze(req: AnalyzeRequest) -> dict[str, Any]:
-    """静态解析仓库:目录树/语言统计/核心文件。"""
+    """静态解析仓库:目录树/语言统计/核心文件(仅限缓存目录内)。"""
     try:
-        return analyze_repo(req.repo_dir)
+        return analyze_repo(req.repo_dir, allowed_root=REPO_DATA_DIR)
     except RepoError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
 
@@ -93,10 +93,15 @@ def _run_json(messages: list[dict[str, str]], what: str) -> dict[str, Any]:
         return chat_json(messages)
     except LLMJsonError as e:
         logger.warning("生成 %s 失败(JSON 格式):%s", what, e)
-        raise HTTPException(status_code=502, detail=f"AI 输出格式异常: {e}") from e
+        raise HTTPException(status_code=502, detail=f"AI 输出格式异常: {_truncate(str(e), 200)}") from e
     except LLMError as e:
         logger.warning("生成 %s 失败:%s", what, e)
-        raise HTTPException(status_code=502, detail=str(e)) from e
+        raise HTTPException(status_code=502, detail=_truncate(str(e), 300)) from e
+
+
+def _truncate(s: str, limit: int) -> str:
+    """截断错误信息,避免把模型原始输出/内部细节回显给调用方。"""
+    return s if len(s) <= limit else s[:limit] + "…"
 
 
 @app.post("/api/ai/health-report")

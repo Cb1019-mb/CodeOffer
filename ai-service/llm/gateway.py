@@ -61,15 +61,19 @@ def _post(
     cfg: LLMConfig,
     *,
     temperature: float,
-    timeout: float = 120.0,
+    timeout: float = 60.0,
     transport: httpx.BaseTransport | None = None,
 ) -> str:
-    """调用 chat/completions 并返回 content 文本;网络/限流/5xx 指数退避重试。"""
+    """调用 chat/completions 并返回 content 文本;限流(429)/5xx/网络抖动指数退避重试。
+    单次 60s、最多 3 次尝试(2 次重试)≈ 185s,与 Java 端 220s 读超时对齐;
+    注意:JSON 修复重试路径会再发起一次调用,最坏约 370s,超出部分由 Java 端 220s 有界截断。"""
     url = f"{cfg.base_url}/chat/completions"
     payload = {
         "model": cfg.model,
         "messages": messages,
         "temperature": temperature,
+        # 输出长度上限:5 张知识卡片(每张 300-800 字)加 JSON 结构约需 6-7k tokens,给足余量
+        "max_tokens": 8000,
     }
     headers = {"Authorization": f"Bearer {cfg.api_key}", "Content-Type": "application/json"}
 
@@ -80,14 +84,18 @@ def _post(
                 resp = client.post(url, json=payload, headers=headers)
             resp.raise_for_status()
             data = resp.json()
-            return data["choices"][0]["message"]["content"]
+            return _content_text(data)
         except httpx.HTTPStatusError as e:
             status = e.response.status_code
             if status in (401, 403):
                 raise LLMError(
                     f"LLM 鉴权失败(HTTP {status}):请检查 config/.env 中的 LLM_API_KEY 与 LLM_BASE_URL"
                 ) from e
-            last_err = e
+            if status == 429 or 500 <= status < 600:
+                last_err = e  # 限流/服务端错误:可重试
+            else:
+                # 其它 4xx(400/404/422 等)是客户端错误,重试无意义
+                raise LLMError(f"LLM 调用被拒绝(HTTP {status}):请检查 LLM_BASE_URL 与请求内容") from e
         except (httpx.TimeoutException, httpx.NetworkError) as e:
             last_err = e
         except (KeyError, IndexError, TypeError, json.JSONDecodeError) as e:
@@ -103,14 +111,27 @@ def _post(
     ) from last_err
 
 
+def _content_text(data: dict[str, Any]) -> str:
+    """从 OpenAI 兼容响应提取 content;兼容 content 为字符串或分段列表的返回。"""
+    content = data["choices"][0]["message"]["content"]
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            str(part.get("text", "")) if isinstance(part, dict) else str(part)
+            for part in content
+        )
+    return str(content)
+
+
 def _certificate_hint(err: Exception | None) -> str:
-    """SSL 证书验证失败时给出可操作的绕过提示。"""
+    """SSL 证书验证失败时给出可操作的排查提示(不诱导关闭证书校验)。"""
     if err is None:
         return ""
     if "certificate verify failed" in str(err).lower() or "certificate_verify_failed" in str(err).lower():
         return (
-            "。提示:当前环境无法验证 LLM API 的证书(常见于代理/抓包/防火墙拦截)。"
-            "如确认服务可靠,可在 config/.env 中设置 LLM_VERIFY_SSL=false 绕过证书验证后重启"
+            ". 提示:当前环境无法验证 LLM API 的证书(常见于代理/自签名证书/防火墙拦截)。"
+            "请检查系统时间、为请求配置可信 CA 或正确配置代理"
         )
     return ""
 

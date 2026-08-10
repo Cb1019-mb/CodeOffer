@@ -12,7 +12,10 @@ import hashlib
 import os
 import re
 import shutil
+import threading
+import uuid
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from git import GitCommandError, Repo
 
@@ -40,6 +43,52 @@ MAX_STAT_FILES = 3000  # 超过则停止逐行统计,避免大仓库卡死
 MAX_CORE_FILES = 20
 MAX_REPO_BYTES = 100 * 1024 * 1024  # 100MB 提示阈值
 
+# 受信任的仓库托管平台(host 精确匹配或子域),拒绝其它 http/https 目标(防 SSRF)
+ALLOWED_REPO_HOSTS = {
+    "github.com", "gitee.com", "gitlab.com", "gitlab.cn", "gitcode.com",
+    "bitbucket.org", "raw.githubusercontent.com",
+}
+
+# 每个 URL 一把锁:避免并发克隆同一仓库时互相删除对方结果
+_clone_locks: dict[str, threading.Lock] = {}
+_clone_locks_guard = threading.Lock()
+
+
+def _lock_for(url_key: str) -> threading.Lock:
+    with _clone_locks_guard:
+        lock = _clone_locks.get(url_key)
+        if lock is None:
+            lock = threading.Lock()
+            _clone_locks[url_key] = lock
+        return lock
+
+
+def _normalize_url(url: str) -> str:
+    """缓存 key 归一化:去尾部斜杠与 .git 后缀、去 query/fragment。"""
+    url = url.strip()
+    url = url.split("?", 1)[0].split("#", 1)[0]
+    while url.endswith("/"):
+        url = url[:-1]
+    if url.endswith(".git"):
+        url = url[:-4]
+    return url
+
+
+def validate_repo_url(repo_url: str) -> None:
+    """校验仓库地址:仅允许 https(受信任平台)或本地 file 仓库;拒绝携带凭证与其它协议。"""
+    parts = urlsplit(repo_url)
+    if parts.scheme == "file":
+        return  # 本地仓库(测试/离线场景),路径可含空格等字符
+    if parts.scheme != "https":
+        raise RepoError("仅支持 https 仓库地址(或本地 file 仓库),当前协议不受支持")
+    if parts.username or parts.password:
+        raise RepoError("仓库地址不能携带凭证(user:pass@),请在托管平台单独配置凭证")
+    host = (parts.hostname or "").lower()
+    if not host or not any(host == h or host.endswith("." + h) for h in ALLOWED_REPO_HOSTS):
+        raise RepoError(
+            "仅支持受信任的仓库托管平台: " + " / ".join(sorted(ALLOWED_REPO_HOSTS))
+        )
+
 # 常见克隆失败原因 → 友好中文提示(按关键词匹配 stderr)
 NETWORK_HINTS = {
     "could not resolve host": "DNS 解析失败,请检查网络连接,或更换 DNS(如 223.5.5.5 / 114.114.114.114)",
@@ -48,7 +97,7 @@ NETWORK_HINTS = {
     "unable to access": "仓库地址不可达,请检查网络/代理,或改用可访问的镜像(如 gitee)",
     "connection was reset": "连接被重置,境外站点被网络策略阻断,请配置代理后重试",
     "timed out": "连接超时,请检查网络后重试",
-    "authentication failed": "认证失败,私有仓库需要在 URL 中携带凭证",
+    "authentication failed": "认证失败,私有仓库请先在托管平台/本机配置访问凭证",
     "repository not found": "仓库不存在或已被删除,请检查 URL 是否正确",
 }
 
@@ -82,42 +131,72 @@ def clone_repo(repo_url: str, dest_dir: str | os.PathLike, *, depth: int = 1) ->
     """浅克隆仓库到 dest_dir(目录名取 URL 的稳定 hash),返回实际仓库目录路径。
 
     已存在(缓存命中)时直接返回,不重复克隆。
+    并发安全:同 URL 通过锁串行化;克隆在临时目录完成后原子改名为目标,避免半成品污染缓存。
     """
+    repo_url = repo_url.strip()
+    validate_repo_url(repo_url)
     dest = Path(dest_dir)
     dest.mkdir(parents=True, exist_ok=True)
-    name = hashlib.sha1(repo_url.encode("utf-8")).hexdigest()[:12]
+    key = _normalize_url(repo_url)
+    name = hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
     target = dest / name
-    if (target / ".git").exists():
+    marker = target / ".codeoffer-ok"  # 克隆成功标记,避免把残留半成品当缓存
+    if marker.exists():
         return str(target)
-    try:
-        Repo.clone_from(repo_url, str(target), depth=depth, single_branch=True)
-    except GitCommandError as e:
-        # 清理失败残留的半成品目录,避免下次克隆报 "already exists and is not an empty directory"
-        shutil.rmtree(target, ignore_errors=True)
-        raise RepoError(friendly_clone_error(repo_url, e)) from e
+
+    lock = _lock_for(key)
+    with lock:
+        if marker.exists():
+            return str(target)
+        if target.exists():
+            # 上次失败的残留,锁内清理(同 URL 才可能进入此分支)
+            shutil.rmtree(target, ignore_errors=True)
+        staging = dest / f"{name}.tmp-{uuid.uuid4().hex[:8]}"
+        try:
+            Repo.clone_from(
+                repo_url,
+                str(staging),
+                depth=depth,
+                single_branch=True,
+                # env 是整体替换而非合并,必须带上 os.environ(Windows 上丢失 PATH/SystemRoot 会找不到 git)
+                env={
+                    **os.environ,
+                    "GIT_HTTP_LOW_SPEED_LIMIT": "1000",
+                    "GIT_HTTP_LOW_SPEED_TIME": "60",
+                },
+            )
+            shutil.move(str(staging), str(target))
+            marker.write_text("ok", encoding="utf-8")
+        except Exception as e:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise RepoError(friendly_clone_error(e)) from e
     return str(target)
 
 
-def friendly_clone_error(repo_url: str, err: GitCommandError) -> str:
-    """把 git 原始报错翻译为友好中文提示(网络类问题给出解决建议)。"""
+def friendly_clone_error(err: Exception) -> str:
+    """把 git 原始报错翻译为友好中文提示;不回显原始 stderr 与 URL(防内网探测 oracle)。"""
     raw = str(err)
     stderr = ""
     try:
-        stderr = err.stderr.decode("utf-8", errors="ignore") if isinstance(err.stderr, bytes) else str(err.stderr)
+        stderr = (
+            err.stderr.decode("utf-8", errors="ignore")
+            if isinstance(err.stderr, bytes)
+            else str(err.stderr)
+        )
     except Exception:
         stderr = ""
     combined = (raw + "\n" + stderr).lower()
 
-    hints = []
+    hints: list[str] = []
     for keyword, hint in NETWORK_HINTS.items():
         if keyword in combined and hint not in hints:
             hints.append(hint)
     hint_text = "；".join(hints) or "请检查仓库地址与网络连接后重试"
-    return f"克隆失败({repo_url}): {hint_text}\n原始错误: {stderr.strip()[:300]}"
+    return f"克隆失败: {hint_text}"
 
 
 def _walk(root: Path) -> list[Path]:
-    """收集相对路径列表,过滤 SKIP_DIRS。"""
+    """收集相对路径列表,过滤 SKIP_DIRS 与符号链接(防 symlink 穿越读取宿主文件)。"""
     rels: list[Path] = []
     for path in sorted(root.rglob("*")):
         try:
@@ -125,6 +204,8 @@ def _walk(root: Path) -> list[Path]:
         except ValueError:
             continue
         if any(part in SKIP_DIRS for part in rel.parts):
+            continue
+        if path.is_symlink():
             continue
         if path.is_file():
             rels.append(rel)
@@ -143,12 +224,15 @@ def _build_tree(root: Path, rels: list[Path]) -> list[dict]:
             if child in SKIP_DIRS:
                 continue
             child_rel = rel / child
-            if child_rel in rels or (root / child_rel).is_dir():
+            child_path = root / child_rel
+            if child_path.is_symlink():
+                continue
+            if child_rel in rels or child_path.is_dir():
                 counted += 1
                 if counted > MAX_TREE_ENTRIES:
                     entries.append({"name": "…(截断)"})
                     break
-                if (root / child_rel).is_dir():
+                if child_path.is_dir():
                     node: dict = {"name": child, "type": "dir"}
                     if depth < MAX_TREE_DEPTH:
                         node["children"] = walk_dir(child_rel, depth + 1)
@@ -160,7 +244,10 @@ def _build_tree(root: Path, rels: list[Path]) -> list[dict]:
     for child in sorted(os.listdir(root)):
         if child in SKIP_DIRS:
             continue
-        if (root / child).is_dir():
+        child_path = root / child
+        if child_path.is_symlink():
+            continue
+        if child_path.is_dir():
             counted += 1
             if counted > MAX_TREE_ENTRIES:
                 tree.append({"name": "…(截断)"})
@@ -228,6 +315,8 @@ def _dir_size(root: Path) -> int:
     total = 0
     try:
         for p in root.rglob("*"):
+            if p.is_symlink():
+                continue
             if p.is_file():
                 total += p.stat().st_size
     except OSError:
@@ -323,9 +412,30 @@ def _tech_stack(root: Path, rels: list[Path], languages: list[dict]) -> list[str
     return merged[:10]
 
 
-def analyze_repo(repo_dir: str | os.PathLike, *, max_files: int = MAX_CORE_FILES) -> dict:
-    """解析仓库目录,产出结构化信息(目录树/语言/核心文件/统计)。"""
-    root = Path(repo_dir)
+def _is_within(path: Path, base: Path) -> bool:
+    """path 是否位于 base 目录内(解析符号链接、统一大小写后比较)。"""
+    try:
+        common = os.path.commonpath([os.path.normcase(str(path)), os.path.normcase(str(base))])
+        return common == os.path.normcase(str(base))
+    except ValueError:
+        return False
+
+
+def analyze_repo(
+    repo_dir: str | os.PathLike,
+    *,
+    allowed_root: str | os.PathLike | None = None,
+    max_files: int = MAX_CORE_FILES,
+) -> dict:
+    """解析仓库目录,产出结构化信息(目录树/语言/核心文件/统计)。
+
+    allowed_root 指定后,repo_dir 必须位于该目录内(防任意目录读取)。
+    """
+    root = Path(repo_dir).resolve()
+    if allowed_root is not None:
+        base = Path(allowed_root).resolve()
+        if not _is_within(root, base):
+            raise RepoError("仅允许解析仓库缓存目录内的路径")
     if not root.is_dir():
         raise RepoError(f"仓库目录不存在: {root}")
 

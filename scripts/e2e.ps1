@@ -12,6 +12,31 @@ $logs = Join-Path $ws "data\logs"
 $temp = Join-Path $env:TEMP "codeoffer-e2e-repo"
 New-Item -ItemType Directory -Path $logs -Force | Out-Null
 
+# 0) 清理旧服务进程(含 uvicorn 的 multiprocessing 子进程树):
+#    旧实例残留时,run.py 的 SO_REUSEADDR 绑定会与旧进程共享端口,请求会被路由到旧实例
+foreach ($port in 8001, 8080) {
+    Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            $proc = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue
+            if ($proc -and $proc.ProcessName -match '^(java|javaw|python|pythonw)$') {
+                taskkill /F /T /PID $proc.Id 2>$null | Out-Null
+            }
+        }
+}
+# 兜底:主进程被杀后 uvicorn 子进程可能存活,按命令行特征清理
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -match 'run\.py|uvicorn' } |
+    ForEach-Object { taskkill /F /T /PID $_.ProcessId 2>$null | Out-Null }
+Start-Sleep -Seconds 2
+# 确认端口已释放;若仍被占用则失败退出,避免与残留实例并存
+$stuck = foreach ($port in 8001, 8080) {
+    if (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) { $port }
+}
+if ($stuck) {
+    Write-Host "[FAIL] 端口 $($stuck -join ', ') 仍被占用,请手动释放后重试" -ForegroundColor Red
+    exit 1
+}
+
 # 1) 准备本地测试仓库(默认),避免外网依赖
 if (-not $RepoUrl) {
     Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue
@@ -36,7 +61,7 @@ if (-not $RepoUrl) {
 # 2) 启动 AI 服务(8001)
 Write-Host "[2/6] 启动 AI 服务 (8001)..."
 Start-Process -FilePath (Join-Path $ws "ai-service\.venv\Scripts\python.exe") `
-    -ArgumentList "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8001" `
+    -ArgumentList "run.py", "--port", "8001" `
     -WorkingDirectory (Join-Path $ws "ai-service") -WindowStyle Hidden `
     -RedirectStandardOutput (Join-Path $logs "ai-service.log") `
     -RedirectStandardError (Join-Path $logs "ai-service.err.log")
@@ -77,11 +102,21 @@ Write-Host "      服务就绪: AI 服务 + 后端"
 
 # 5) 创建项目并轮询任务
 Write-Host "[5/6] 创建项目并等待生成..."
+# 幂等:后端已禁止重复录入同一仓库(409),先清理上次 e2e 遗留的同 URL 项目
+try {
+    $existing = Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/projects" -TimeoutSec 5
+    foreach ($p in $existing) {
+        if ($p.repoUrl -eq $RepoUrl) {
+            Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/projects/$($p.id)" -Method Delete -TimeoutSec 5 | Out-Null
+            Write-Host "      已清理上次 e2e 遗留项目 #$($p.id)"
+        }
+    }
+} catch { }
 $created = Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/projects" -Method Post `
     -ContentType "application/json" -Body (@{ repoUrl = $RepoUrl } | ConvertTo-Json)
 Write-Host "      项目 #$($created.projectId) 已创建"
 $task = $null
-for ($i = 0; $i -lt 60; $i++) {
+for ($i = 0; $i -lt 150; $i++) {  # 最长 300s:全链路 4 次 LLM 调用,单次最长 ~80s
     Start-Sleep -Seconds 2
     $task = Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/projects/$($created.projectId)/task"
     if ($task.status -ne "RUNNING") { break }
@@ -121,7 +156,15 @@ if (-not $KeepRunning) {
     Write-Host "清理服务进程..."
     foreach ($port in 8001, 8080) {
         Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
-            ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
+            ForEach-Object {
+                $proc = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue
+                if ($proc -and $proc.ProcessName -match '^(java|javaw|python|pythonw)$') {
+                    taskkill /F /T /PID $proc.Id 2>$null | Out-Null
+                }
+            }
     }
+    Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -match 'run\.py|uvicorn' } |
+        ForEach-Object { taskkill /F /T /PID $_.ProcessId 2>$null | Out-Null }
 }
 Write-Host "E2E 完成。"

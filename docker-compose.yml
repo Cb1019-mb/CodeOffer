@@ -5,9 +5,19 @@ services:
     ports:
       - "${AI_SERVICE_PORT:-8001}:8001"
     env_file:
-      - ./config/.env
+      # config/.env 不入库,全新 clone 上可能缺失;required:false 允许缺省启动
+      - path: ./config/.env
+        required: false
     volumes:
       - ./data/repos:/data/repos
+    environment:
+      - REPO_DATA_DIR=/data/repos
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8001/api/health', timeout=2).status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
   backend:
@@ -16,9 +26,11 @@ services:
     ports:
       - "${BACKEND_PORT:-8080}:8080"
     depends_on:
-      - ai-service
+      ai-service:
+        condition: service_healthy
     environment:
       - AI_SERVICE_URL=http://ai-service:8001
+      - DATA_DIR=/data
     volumes:
       - ./data:/data
     restart: unless-stopped

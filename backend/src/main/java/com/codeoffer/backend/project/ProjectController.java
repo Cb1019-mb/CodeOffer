@@ -9,6 +9,8 @@ import com.codeoffer.backend.project.ApiViews.ProjectView;
 import com.codeoffer.backend.project.ApiViews.ResumeView;
 import com.codeoffer.backend.project.ApiViews.TaskView;
 import com.codeoffer.backend.project.GenTask.TaskStatus;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
@@ -57,6 +59,10 @@ public class ProjectController {
         String url = req.repoUrl() == null ? "" : req.repoUrl().trim();
         if (url.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "repoUrl 不能为空");
+        }
+        validateRepoUrl(url);
+        if (projects.findByRepoUrl(url).isPresent()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "该仓库已录入过,请勿重复提交");
         }
         Project project = new Project();
         project.setRepoUrl(url);
@@ -163,11 +169,13 @@ public class ProjectController {
     @PostMapping("/{id}/confirm")
     public ProjectDetail confirm(@PathVariable Long id) {
         Project p = requireProject(id);
-        if (p.getStatus() == ProjectStatus.REVIEW || p.getStatus() == ProjectStatus.DONE) {
-            p.setStatus(ProjectStatus.DONE);
-            p.setUpdatedAt(Instant.now());
-            projects.save(p);
+        if (p.getStatus() != ProjectStatus.REVIEW && p.getStatus() != ProjectStatus.DONE) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, "当前状态 " + p.getStatus() + " 不可确认,需先生成完毕(REVIEW 状态)");
         }
+        p.setStatus(ProjectStatus.DONE);
+        p.setUpdatedAt(Instant.now());
+        projects.save(p);
         return detail(id);
     }
 
@@ -186,6 +194,11 @@ public class ProjectController {
     @PostMapping("/{id}/regenerate")
     public CreateResponse regenerate(@PathVariable Long id) {
         Project p = requireProject(id);
+        if (tasks.findFirstByProjectIdOrderByIdDesc(id)
+                .map(t -> t.getStatus() == TaskStatus.RUNNING)
+                .orElse(false)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "已有生成任务进行中,请等待完成后再重新生成");
+        }
         p.setStatus(ProjectStatus.PENDING);
         p.setUpdatedAt(Instant.now());
         projects.save(p);
@@ -242,6 +255,10 @@ public class ProjectController {
     @PostMapping("/{id}/cards/{cardId}/regenerate")
     public CardView regenerateCard(@PathVariable Long id, @PathVariable Long cardId) {
         requireProject(id);
+        KnowledgeCard card = requireCard(cardId);
+        if (!card.getProjectId().equals(id)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "卡片不属于该项目");
+        }
         return toCardView(generate.regenerateCard(cardId));
     }
 
@@ -294,6 +311,9 @@ public class ProjectController {
     public CardView reviewCard(@PathVariable Long id, @PathVariable Long cardId, @RequestBody ReviewRequest req) {
         requireProject(id);
         KnowledgeCard card = requireCard(cardId);
+        if (!card.getProjectId().equals(id)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "卡片不属于该项目");
+        }
         Instant now = Instant.now();
         if (req.known()) {
             int mastery = Math.min(5, card.getMastery() + 1);
@@ -324,6 +344,53 @@ public class ProjectController {
     }
 
     // ------------------------------------------------------------ helpers
+
+    /** 受信任的仓库托管平台(host 精确匹配或子域)。 */
+    private static final List<String> ALLOWED_REPO_HOSTS = List.of(
+            "github.com",
+            "gitee.com",
+            "gitlab.com",
+            "gitlab.cn",
+            "gitcode.com",
+            "bitbucket.org",
+            "raw.githubusercontent.com");
+
+    /**
+     * 校验仓库地址:仅允许 https(受信任托管平台)或本地 file 仓库(e2e 场景),
+     * 拒绝携带凭证(user:pass@)的 URL,防止 SSRF 与凭证泄露。
+     */
+    private static void validateRepoUrl(String url) {
+        // file:// 本地仓库:宽松处理(路径可含空格等字符,不经严格 URI 解析),仅拒绝凭证
+        if (url.toLowerCase().startsWith("file://")) {
+            if (url.contains("@")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "仓库地址不能携带凭证(user:pass@),请在托管平台单独配置凭证");
+            }
+            return;
+        }
+        URI uri;
+        try {
+            uri = new URI(url);
+        } catch (URISyntaxException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "仓库地址格式不合法");
+        }
+        if (uri.getUserInfo() != null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "仓库地址不能携带凭证(user:pass@),请在托管平台单独配置凭证");
+        }
+        String scheme = uri.getScheme();
+        if (scheme == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "仓库地址缺少协议(如 https://)");
+        }
+        if (!"https".equalsIgnoreCase(scheme)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "仅支持 https 或本地 file 仓库地址");
+        }
+        String host = uri.getHost();
+        boolean allowed = host != null && ALLOWED_REPO_HOSTS.stream()
+                .anyMatch(h -> host.equals(h) || host.endsWith("." + h));
+        if (!allowed) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "仅支持受信任的仓库托管平台: " + String.join(" / ", ALLOWED_REPO_HOSTS));
+        }
+    }
 
     private Project requireProject(Long id) {
         return projects.findById(id)

@@ -11,9 +11,11 @@ import com.codeoffer.backend.project.ProjectRepository;
 import com.codeoffer.backend.project.ProjectStatus;
 import com.codeoffer.backend.project.ResumeEntry;
 import com.codeoffer.backend.project.ResumeEntryRepository;
+import jakarta.annotation.PostConstruct;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.concurrent.locks.ReentrantLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -73,14 +75,46 @@ public class GenerateService {
         }
     }
 
-    private void doRunFullGeneration(Long projectId, Long taskId) {        Project project = projects.findById(projectId).orElseThrow();
-        GenTask task = tasks.findById(taskId).orElseThrow();
+    /** 应用启动时清理孤儿任务:上次进程中断残留的 RUNNING 任务与进行中状态一并置 FAILED。
+     *  仅清理 60 秒前仍在 RUNNING 的任务,避免误标另一实例正在执行的生成。 */
+    @PostConstruct
+    public void sweepOrphanedTasks() {
+        Instant cutoff = Instant.now().minusSeconds(60);
+        List<GenTask> orphans = tasks.findByStatus(TaskStatus.RUNNING).stream()
+                .filter(t -> t.getUpdatedAt() == null || t.getUpdatedAt().isBefore(cutoff))
+                .toList();
+        for (GenTask t : orphans) {
+            t.setStatus(TaskStatus.FAILED);
+            t.setErrorMsg("服务重启中断,生成任务未完成,请重新生成");
+            tasks.save(t);
+            projects.findById(t.getProjectId()).ifPresent(p -> {
+                if (p.getStatus() != ProjectStatus.DONE && p.getStatus() != ProjectStatus.REVIEW) {
+                    p.setStatus(ProjectStatus.FAILED);
+                    projects.save(p);
+                }
+            });
+        }
+        if (!orphans.isEmpty()) {
+            log.info("启动清理:将 {} 个中断的生成任务标记为 FAILED", orphans.size());
+        }
+    }
+
+    private void doRunFullGeneration(Long projectId, Long taskId) {
+        Project project;
+        GenTask task;
+        try {
+            project = projects.findById(projectId).orElseThrow();
+            task = tasks.findById(taskId).orElseThrow();
+        } catch (NoSuchElementException e) {
+            log.warn("生成任务 {}/{} 已被删除,跳过执行", projectId, taskId);
+            return;
+        }
         try {
             // 1) 克隆
             transition(project, task, ProjectStatus.CLONING, 5);
             String repoDir = ai.cloneRepo(project.getRepoUrl());
             project.setRepoDir(repoDir);
-            projects.save(project);
+            saveProject(project);
 
             // 2) 解析
             transition(project, task, ProjectStatus.ANALYZING, 25);
@@ -97,14 +131,14 @@ public class GenerateService {
                         .toList();
                 project.setTechStack(stack.isEmpty() ? null : String.join(", ", stack));
             }
-            projects.save(project);
+            saveProject(project);
 
             // 3) 生成
             transition(project, task, ProjectStatus.GENERATING, 50);
             Map<String, Object> cardsResp = ai.knowledgeCards(repoInfo, CARD_TYPES);
             retryOnBusy(() -> writer.replaceCards(projectId, castCards(cardsResp.get("cards"))));
             task.setProgress(70);
-            tasks.save(task);
+            saveTask(task);
 
             Map<String, Object> flowResp = ai.flowDiagram(repoInfo);
             retryOnBusy(() -> writer.saveFlowCard(
@@ -112,7 +146,7 @@ public class GenerateService {
                     (String) flowResp.getOrDefault("title", "核心流程图"),
                     buildFlowContent(flowResp)));
             task.setProgress(80);
-            tasks.save(task);
+            saveTask(task);
 
             Map<String, Object> resumeResp = ai.resume(repoInfo);
             Map<String, Object> qaResp = ai.interviewQuestions(repoInfo);
@@ -122,30 +156,51 @@ public class GenerateService {
                     json(resumeResp.get("star")),
                     json(qaResp.get("questions"))));
             task.setProgress(90);
-            tasks.save(task);
+            saveTask(task);
 
             // 4) 待用户确认
             project.setStatus(ProjectStatus.REVIEW);
-            projects.save(project);
+            project.setUpdatedAt(Instant.now());
+            saveProject(project);
             task.setStatus(TaskStatus.DONE);
             task.setProgress(100);
-            tasks.save(task);
+            saveTask(task);
             log.info("项目 {} 全链路生成完成", projectId);
         } catch (Exception e) {
+            if (!projects.existsById(projectId)) {
+                log.info("项目 {} 已被删除,丢弃生成结果", projectId);
+                return;
+            }
             log.error("项目 {} 生成失败: {}", projectId, e.getMessage(), e);
             project.setStatus(ProjectStatus.FAILED);
-            projects.save(project);
+            saveProject(project);
             task.setStatus(TaskStatus.FAILED);
             task.setErrorMsg(truncate(e.getMessage(), 1900));
+            saveTask(task);
+        }
+    }
+
+    /** 项目已被删除时跳过写库(避免 merge 复活已删数据)。 */
+    private void saveProject(Project project) {
+        if (projects.existsById(project.getId())) {
+            projects.save(project);
+        }
+    }
+
+    /** 任务已被删除时跳过写库。 */
+    private void saveTask(GenTask task) {
+        if (tasks.existsById(task.getId())) {
+            task.setUpdatedAt(Instant.now()); // 刷新活跃时间:供启动清理判断任务是否仍在运行
             tasks.save(task);
         }
     }
 
     private void transition(Project project, GenTask task, ProjectStatus status, int progress) {
         project.setStatus(status);
-        projects.save(project);
+        project.setUpdatedAt(Instant.now());
+        retryOnBusy(() -> saveProject(project));
         task.setProgress(progress);
-        tasks.save(task);
+        retryOnBusy(() -> saveTask(task));
     }
 
     /**
@@ -174,8 +229,15 @@ public class GenerateService {
     }
 
     private static boolean isBusyError(DataAccessException e) {
-        String msg = e.getMessage();
-        return msg != null && (msg.contains("SQLITE_BUSY") || msg.contains("database is locked"));
+        Throwable cur = e;
+        while (cur != null) {
+            String msg = cur.getMessage();
+            if (msg != null && (msg.contains("SQLITE_BUSY") || msg.contains("database is locked"))) {
+                return true;
+            }
+            cur = cur.getCause();
+        }
+        return false;
     }
 
     @SuppressWarnings("unchecked")
@@ -220,11 +282,14 @@ public class GenerateService {
             }
             Map<String, Object> item = items.get(0);
             card.setTitle((String) item.getOrDefault("title", card.getTitle()));
-            newDraft = (String) item.get("content");
+            Object rawContent = item.get("content");
+            newDraft = rawContent == null ? null : String.valueOf(rawContent);
         }
-        card.setAiDraft(newDraft);
-        if (!card.isEdited()) {
-            card.setContent(newDraft);
+        if (newDraft != null) {
+            card.setAiDraft(newDraft);
+            if (!card.isEdited()) {
+                card.setContent(newDraft);
+            }
         }
         card.setUpdatedAt(Instant.now());
         return cards.save(card);

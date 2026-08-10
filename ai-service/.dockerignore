@@ -1,0 +1,9 @@
+# AI 服务镜像构建上下文排除:避免把本地 venv/缓存/测试带入镜像
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+data/
+*.log

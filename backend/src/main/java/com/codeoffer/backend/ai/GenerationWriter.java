@@ -7,6 +7,10 @@ import com.codeoffer.backend.project.ResumeEntry;
 import com.codeoffer.backend.project.ResumeEntryRepository;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
@@ -18,6 +22,8 @@ import tools.jackson.databind.ObjectMapper;
  */
 @Service
 public class GenerationWriter {
+
+    private static final Logger log = LoggerFactory.getLogger(GenerationWriter.class);
 
     private final KnowledgeCardRepository cards;
     private final ResumeEntryRepository resumes;
@@ -32,17 +38,55 @@ public class GenerationWriter {
         this.mapper = mapper;
     }
 
-    /** 全量替换知识卡片:删除旧卡后按 AI 返回重建。 */
+    /**
+     * 全量替换知识卡片:删除未编辑的旧卡后按 AI 返回重建;
+     * 已编辑(edited)的卡片保留定稿,仅更新 AI 草稿,兑现「已编辑不覆盖」承诺。
+     */
     @Transactional
     public void replaceCards(Long projectId, List<Map<String, Object>> items) {
-        cards.deleteByProjectId(projectId);
+        List<KnowledgeCard> existing = cards.findByProjectIdOrderByIdAsc(projectId);
+        existing.stream().filter(c -> !c.isEdited()).forEach(cards::delete);
         if (items == null) {
             return;
         }
+
+        // 按类型分组 AI 返回(大小写不敏感)
+        Map<String, Map<String, Object>> byType = items.stream()
+                .filter(i -> i.get("type") != null)
+                .collect(Collectors.toMap(
+                        i -> String.valueOf(i.get("type")).toLowerCase(),
+                        i -> i,
+                        (a, b) -> b));
+
+        // 已编辑卡片:仅刷新 AI 草稿,不覆盖定稿
+        for (KnowledgeCard card : existing) {
+            if (!card.isEdited()) {
+                continue;
+            }
+            Map<String, Object> item = byType.get(card.getType().name().toLowerCase());
+            if (item == null) {
+                continue;
+            }
+            String draft = item.get("content") == null ? null : String.valueOf(item.get("content"));
+            if (draft != null) {
+                card.setAiDraft(draft);
+                cards.save(card);
+            }
+        }
+
+        // 重建:跳过已被已编辑卡片占用的类型
+        Set<String> editedTypes = existing.stream()
+                .filter(KnowledgeCard::isEdited)
+                .map(c -> c.getType().name().toLowerCase())
+                .collect(Collectors.toSet());
         for (Map<String, Object> item : items) {
+            String typeName = item.get("type") == null ? null : String.valueOf(item.get("type"));
+            if (typeName == null || editedTypes.contains(typeName.toLowerCase())) {
+                continue;
+            }
             KnowledgeCard card = new KnowledgeCard();
             card.setProjectId(projectId);
-            card.setType(toCardType((String) item.get("type")));
+            card.setType(toCardType(typeName));
             card.setTitle((String) item.get("title"));
             String content = (String) item.get("content");
             card.setAiDraft(content);
@@ -100,6 +144,7 @@ public class GenerationWriter {
         try {
             return CardType.valueOf(type.toUpperCase());
         } catch (Exception e) {
+            log.warn("未知卡片类型: {},降级为 TAKEAWAY", type);
             return CardType.TAKEAWAY;
         }
     }

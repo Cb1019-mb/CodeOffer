@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Alert, Button, Card, Collapse, Descriptions, Empty, Input, Space, Tag, Typography, message } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
@@ -58,6 +58,12 @@ export default function ResumeSection({ projectId, resume, onChanged }: Props) {
   const [regenerating, setRegenerating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [raw, setRaw] = useState<string | null>(null)
+
+  // 父组件刷新/重新生成后同步本地状态,避免展示陈旧数据
+  useEffect(() => {
+    setStar(resume ? parseJson<Star>(resume.starContent, {}) : null)
+    setQuestions(resume ? parseJson<Qa[]>(resume.interviewQas, []) : null)
+  }, [resume])
 
   if (!resume) {
     return <Empty description="尚无简历产出,项目生成完成后自动生成" />

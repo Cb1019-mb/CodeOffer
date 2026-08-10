@@ -1,6 +1,7 @@
 package com.codeoffer.backend.ai;
 
 import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
@@ -8,6 +9,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -31,22 +33,51 @@ public class AiServiceClient {
         // 会导致请求体被丢弃(422 body missing)。
         HttpClient jdkClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(10))
                 .build();
+        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(jdkClient);
+        // LLM 单次调用 60s、最多 3 次重试 + 退避 ≈ 185s(gateway 内部),这里留足覆盖整个重试预算
+        factory.setReadTimeout(Duration.ofSeconds(220));
         this.rest = RestClient.builder()
                 .baseUrl(baseUrl)
-                .requestFactory(new JdkClientHttpRequestFactory(jdkClient))
+                .requestFactory(factory)
                 .build();
     }
 
     private Map<String, Object> post(String path, Map<String, Object> body) {
         String json = write(body);
-        String resp = rest.post()
-                .uri(path)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(json)
-                .retrieve()
-                .body(String.class);
-        return read(resp);
+        try {
+            String resp = rest.post()
+                    .uri(path)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(json)
+                    .retrieve()
+                    .body(String.class);
+            return read(resp);
+        } catch (RestClientResponseException e) {
+            // 只透传状态码与 AI 服务 detail 字段(截断),不泄露原始响应体/堆栈
+            String detail = extractDetail(e);
+            throw new IllegalStateException("AI 服务调用失败(HTTP " + e.getStatusCode().value() + "): " + detail);
+        }
+    }
+
+    /** 从 AI 服务错误响应体的 detail 字段提取友好信息;取不到则用通用提示。 */
+    private String extractDetail(RestClientResponseException e) {
+        String body = e.getResponseBodyAsString();
+        if (body == null || body.isBlank()) {
+            return "请检查 AI 服务日志";
+        }
+        try {
+            tools.jackson.databind.JsonNode node = mapper.readTree(body);
+            tools.jackson.databind.JsonNode detailNode = node.path("detail");
+            if (detailNode.isMissingNode() || detailNode.isNull()) {
+                return "请检查 AI 服务日志";
+            }
+            String detail = detailNode.asString();
+            return detail.length() <= 300 ? detail : detail.substring(0, 300) + "…";
+        } catch (Exception ex) {
+            return "请检查 AI 服务日志";
+        }
     }
 
     private String write(Object value) {

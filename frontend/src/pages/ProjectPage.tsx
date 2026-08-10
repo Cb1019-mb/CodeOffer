@@ -24,6 +24,7 @@ export default function ProjectPage() {
     try {
       const d = await api.getProject(projectId)
       setDetail(d)
+      setError(null) // 恢复成功后清除错误横幅
       return d
     } catch (e) {
       setError((e as Error).message)
@@ -38,13 +39,16 @@ export default function ProjectPage() {
     }
     let stopped = false
     let interval: ReturnType<typeof setInterval> | undefined
+    let seq = 0 // 请求序号:丢弃乱序返回的旧轮询结果
 
     const poll = async () => {
+      const mySeq = ++seq
       try {
         const [d, t] = await Promise.all([api.getProject(projectId), api.getTask(projectId)])
-        if (stopped) return
+        if (stopped || mySeq !== seq) return
         setDetail(d)
         setTask(t)
+        setError(null)
         if (t && (t.status === 'DONE' || t.status === 'FAILED') && interval) {
           clearInterval(interval)
         }

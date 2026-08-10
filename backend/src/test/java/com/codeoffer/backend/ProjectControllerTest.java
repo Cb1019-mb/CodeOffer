@@ -4,6 +4,9 @@ import com.codeoffer.backend.ai.AiServiceClient;
 import com.codeoffer.backend.project.GenTask;
 import com.codeoffer.backend.project.GenTask.TaskStatus;
 import com.codeoffer.backend.project.GenTaskRepository;
+import com.codeoffer.backend.project.Project;
+import com.codeoffer.backend.project.ProjectRepository;
+import com.codeoffer.backend.project.ProjectStatus;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -41,9 +44,18 @@ class ProjectControllerTest {
     private MockMvc mvc;
     @Autowired
     private GenTaskRepository tasks;
+    @Autowired
+    private ProjectRepository projects;
 
     @MockitoBean
     private AiServiceClient ai;
+
+    private static int urlSeq = 0;
+
+    /** 每次创建使用唯一 URL,避免重复录入检测(409)干扰测试。 */
+    private static String uniqueUrl() {
+        return "https://github.com/octocat/Hello-World-" + (++urlSeq);
+    }
 
     private void stubAi() {
         when(ai.cloneRepo(anyString())).thenReturn("C:/fake/repo");
@@ -66,7 +78,7 @@ class ProjectControllerTest {
 
         MvcResult created = mvc.perform(post("/api/projects")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"repoUrl\": \"https://github.com/octocat/Hello-World\"}"))
+                        .content("{\"repoUrl\": \"" + uniqueUrl() + "\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.projectId").exists())
                 .andReturn();
@@ -112,6 +124,69 @@ class ProjectControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"repoUrl\": \"   \"}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void createWithUnsafeUrl_rejected() throws Exception {
+        // 非 https/file、非受信任平台、携带凭证的 URL 均拒绝
+        mvc.perform(post("/api/projects")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"repoUrl\": \"http://169.254.169.254/latest/meta-data\"}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/projects")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"repoUrl\": \"ssh://git@github.com/octocat/Hello-World.git\"}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/projects")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"repoUrl\": \"https://user:token@github.com/octocat/Hello-World\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void createDuplicateUrl_conflict() throws Exception {
+        stubAi();
+        String url = uniqueUrl();
+        mvc.perform(post("/api/projects")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"repoUrl\": \"" + url + "\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/projects")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"repoUrl\": \"" + url + "\"}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void confirmBeforeReview_conflict() throws Exception {
+        // 手工构造「生成中」状态:项目 PENDING + 任务 RUNNING,confirm 应 409
+        Project p = new Project();
+        p.setRepoUrl(uniqueUrl());
+        p.setStatus(ProjectStatus.PENDING);
+        p = projects.save(p);
+        GenTask t = new GenTask();
+        t.setProjectId(p.getId());
+        t.setStatus(TaskStatus.RUNNING);
+        tasks.save(t);
+
+        mvc.perform(post("/api/projects/{id}/confirm", p.getId()))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void regenerateWhileRunning_conflict() throws Exception {
+        // 手工构造「生成中」状态:已有 RUNNING 任务时 regenerate 应 409
+        Project p = new Project();
+        p.setRepoUrl(uniqueUrl());
+        p.setStatus(ProjectStatus.GENERATING);
+        p = projects.save(p);
+        GenTask t = new GenTask();
+        t.setProjectId(p.getId());
+        t.setStatus(TaskStatus.RUNNING);
+        tasks.save(t);
+
+        mvc.perform(post("/api/projects/{id}/regenerate", p.getId()))
+                .andExpect(status().isConflict());
     }
 
     @Test
@@ -255,7 +330,7 @@ class ProjectControllerTest {
     /** 创建项目并轮询到任务终态,返回 projectId。 */
     private long createAndAwait() throws Exception {        MvcResult created = mvc.perform(post("/api/projects")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"repoUrl\": \"https://github.com/octocat/Hello-World\"}"))
+                        .content("{\"repoUrl\": \"" + uniqueUrl() + "\"}"))
                 .andExpect(status().isOk())
                 .andReturn();
         long projectId = new tools.jackson.databind.ObjectMapper()

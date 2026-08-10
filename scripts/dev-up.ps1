@@ -6,11 +6,28 @@ $logs = Join-Path $ws "data\logs"
 New-Item -ItemType Directory -Path $logs -Force | Out-Null
 
 # 0) 清理旧服务进程:端口被占用时新进程会启动失败,导致"改了配置/代码但重启不生效"
+#    仅杀 java/python 进程树,避免误杀无关程序;uvicorn 子进程按命令行特征兜底清理
 foreach ($port in 8001, 8080) {
     Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
-        ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
+        ForEach-Object {
+            $proc = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue
+            if ($proc -and $proc.ProcessName -match '^(java|javaw|python|pythonw)$') {
+                taskkill /F /T /PID $proc.Id 2>$null | Out-Null
+            }
+        }
 }
-Start-Sleep -Seconds 1
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -match 'run\.py|uvicorn' } |
+    ForEach-Object { taskkill /F /T /PID $_.ProcessId 2>$null | Out-Null }
+Start-Sleep -Seconds 2
+# 确认端口已释放;若仍被占用则失败退出,避免与残留实例并存(其启动清理会误标进行中任务)
+$stuck = foreach ($port in 8001, 8080) {
+    if (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) { $port }
+}
+if ($stuck) {
+    Write-Host "[FAIL] 端口 $($stuck -join ', ') 仍被占用,请手动释放后重试" -ForegroundColor Red
+    exit 1
+}
 
 # 1) 准备 Python 虚拟环境
 if (-not (Test-Path (Join-Path $ws "ai-service\.venv"))) {
@@ -22,9 +39,11 @@ if (-not (Test-Path (Join-Path $ws "ai-service\.venv"))) {
 }
 
 # 2) 启动 AI 服务(8001)
+#    经 run.py 以 SO_REUSEADDR 绑定,规避 Windows 僵尸 socket(强杀旧进程后端口 10048)。
+#    注:外部 socket 模式不支持 --reload,热更新需在无僵尸端口时手动 uvicorn --reload。
 Write-Host "[2/3] 启动 AI 服务 http://127.0.0.1:8001 ..." -ForegroundColor Cyan
 Start-Process -FilePath (Join-Path $ws "ai-service\.venv\Scripts\python.exe") `
-    -ArgumentList "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8001", "--reload" `
+    -ArgumentList "run.py", "--port", "8001" `
     -WorkingDirectory (Join-Path $ws "ai-service") -WindowStyle Hidden `
     -RedirectStandardOutput (Join-Path $logs "ai-service.log") `
     -RedirectStandardError (Join-Path $logs "ai-service.err.log")

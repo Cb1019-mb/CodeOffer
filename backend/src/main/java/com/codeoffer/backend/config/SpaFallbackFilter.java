@@ -24,8 +24,10 @@ public class SpaFallbackFilter implements Filter {
         String uri = request.getRequestURI();
         boolean isGet = "GET".equalsIgnoreCase(request.getMethod());
         boolean isApi = uri.startsWith("/api");
+        boolean isActuator = uri.startsWith("/actuator");
+        boolean isError = uri.equals("/error") || uri.startsWith("/error");
         boolean hasExtension = uri.contains(".");
-        if (isGet && !isApi && !hasExtension) {
+        if (isGet && !isApi && !isActuator && !isError && !hasExtension) {
             request.getRequestDispatcher("/index.html").forward(req, res);
             return;
         }

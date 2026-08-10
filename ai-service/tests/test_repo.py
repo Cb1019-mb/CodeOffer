@@ -75,28 +75,60 @@ def test_missing_dir_raises(tmp_path: Path):
         analyze_repo(str(tmp_path / "nope"))
 
 
-def test_clone_error_translated_to_friendly_hint(monkeypatch, tmp_path: Path):
-    """网络类克隆错误应翻译为友好中文提示(而非原始英文报错)。"""
-    from git import GitCommandError, Repo
-
-    def boom(*args, **kwargs):
-        err = GitCommandError(
-            "git clone",
-            128,
-            stderr=b"fatal: unable to access 'https://github.com/x/y/': schannel: server closed abruptly (missing close_notify)",
-        )
-        raise err
-
-    monkeypatch.setattr(Repo, "clone_from", boom)
+def test_clone_rejects_unsafe_url(tmp_path: Path):
+    """不安全 URL(非 https/非受信任平台/携带凭证)应在克隆前被拒绝。"""
     from services.repo import clone_repo
 
+    for bad in (
+        "http://169.254.169.254/latest/meta-data",
+        "ssh://git@github.com/octocat/Hello-World.git",
+        "git://github.com/octocat/Hello-World.git",
+        "https://user:token@github.com/octocat/Hello-World",
+        "https://evil.example.com/repo",
+        "ftp://github.com/x/y",
+    ):
+        with pytest.raises(RepoError):
+            clone_repo(bad, str(tmp_path))
+
+
+def test_clone_accepts_https_and_file(monkeypatch, tmp_path: Path):
+    """https(受信任平台)与本地 file 仓库应放行到克隆阶段。"""
+    from git import Repo
+
+    import services.repo as repo_module
+
+    def fake_clone(url, target, *args, **kwargs):
+        # 模拟真实克隆:创建目标目录,供后续 move/标记流程使用
+        from pathlib import Path as _Path
+
+        _Path(target).mkdir(parents=True, exist_ok=True)
+        return None
+
+    monkeypatch.setattr(Repo, "clone_from", fake_clone)
+    repo_module.clone_repo("https://github.com/octocat/Hello-World", str(tmp_path))
+    repo_module.clone_repo("https://gitee.com/octocat/Hello-World.git", str(tmp_path))
+    repo_module.clone_repo("file:///c:/temp/local-repo", str(tmp_path))
+
+
+def test_clone_error_does_not_echo_raw_stderr(monkeypatch, tmp_path: Path):
+    """克隆错误不应回显原始 stderr(防内网探测 oracle)。"""
+    from git import GitCommandError, Repo
+
+    from services.repo import clone_repo
+
+    def boom(*args, **kwargs):
+        raise GitCommandError(
+            "git clone",
+            128,
+            stderr=b"fatal: unable to access 'http://192.168.1.1:8080/': connection refused",
+        )
+
+    monkeypatch.setattr(Repo, "clone_from", boom)
     with pytest.raises(RepoError) as exc_info:
         clone_repo("https://github.com/x/y", str(tmp_path))
     msg = str(exc_info.value)
-    # 应包含友好提示(网络阻断/不可达),而不是只有原始英文
-    assert "克隆失败" in msg
-    assert "schannel" not in msg.split("原始错误")[0].lower() or "TLS" in msg or "代理" in msg
-    assert "代理" in msg or "DNS" in msg or "不可达" in msg
+    assert "192.168.1.1" not in msg
+    assert "原始错误" not in msg
 
 
 def test_clone_failure_cleans_remnant_dir(monkeypatch, tmp_path: Path):

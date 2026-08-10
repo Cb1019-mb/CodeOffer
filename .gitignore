@@ -22,3 +22,8 @@ config/local.yml
 
 # 工具元数据
 .reasonix/
+
+# 前端构建产物(由 build-frontend.ps1 复制到后端托管)
+backend/src/main/resources/static/
+.pytest_cache/
+
