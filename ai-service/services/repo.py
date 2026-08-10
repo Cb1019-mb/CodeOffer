@@ -52,6 +52,15 @@ NETWORK_HINTS = {
     "repository not found": "仓库不存在或已被删除,请检查 URL 是否正确",
 }
 
+# 扩展名 → 展示名(技术栈主语言用)
+LANG_NAMES = {
+    ".py": "Python", ".go": "Go", ".js": "JavaScript", ".ts": "TypeScript",
+    ".java": "Java", ".kt": "Kotlin", ".rs": "Rust", ".rb": "Ruby",
+    ".php": "PHP", ".c": "C", ".cpp": "C++", ".cs": "C#", ".swift": "Swift",
+    ".html": "HTML", ".css": "CSS", ".vue": "Vue", ".jsx": "React", ".tsx": "React",
+    ".sql": "SQL", ".md": "Markdown", ".sh": "Shell", ".yml": "YAML", ".json": "JSON",
+}
+
 # 测试文件特征:对"核心文件"提取应降权(学习时优先看生产代码)
 TEST_PATTERNS = (
     r"[/\\](test|tests|__tests__)[/\\]",
@@ -223,6 +232,93 @@ def _dir_size(root: Path) -> int:
     return total
 
 
+def _extract_description(root: Path, rels: list[Path]) -> str:
+    """从 README 提取一句话描述:第一个非空的正文段落(跳过标题/徽章/空行)。"""
+    for rel in rels:
+        if rel.name.upper().startswith("README"):
+            try:
+                with (root / rel).open("r", encoding="utf-8", errors="ignore") as fh:
+                    for line in fh:
+                        line = line.strip()
+                        if not line or line.startswith(("#", "!", "[")):
+                            continue
+                        # [text](url) → text,去掉多余空白
+                        cleaned = re.sub(r"\[([^]]+)]\([^)]*\)", r"\1", line)
+                        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+                        if len(cleaned) >= 15:
+                            return cleaned[:200]
+            except OSError:
+                continue
+    return ""
+
+
+def _parse_deps(root: Path, rels: list[Path]) -> list[str]:
+    """从常见依赖清单文件提取技术名,核心依赖在前、开发依赖在后(去重保序)。"""
+    deps: list[str] = []
+    for rel in rels:
+        name = rel.name
+        try:
+            text = (root / rel).read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if name == "package.json":
+            import json as _json
+
+            try:
+                data = _json.loads(text)
+            except Exception:
+                continue
+            for key in ("dependencies", "devDependencies"):
+                for dep in (data.get(key) or {}):
+                    deps.append(dep if key == "dependencies" else dep + "(dev)")
+        elif name == "requirements.txt":
+            for line in text.splitlines():
+                line = line.strip()
+                if not line or line.startswith(("#", "-", "git+", "http")):
+                    continue
+                deps.append(re.split(r"[=<>!~]", line)[0].strip())
+        elif name == "pom.xml":
+            for m in re.findall(r"<artifactId>([^<]+)</artifactId>", text)[:15]:
+                deps.append(m)
+        elif name == "go.mod":
+            for line in text.splitlines():
+                m = re.match(r"^\s*([\w.\-]+/)+([\w.\-]+)\s+v", line)
+                if m:
+                    deps.append(m.group(2))
+        elif name in ("pyproject.toml", "Cargo.toml"):
+            in_deps = False
+            for line in text.splitlines():
+                s = line.strip()
+                if s.startswith("[") and "depend" in s.lower():
+                    in_deps = True
+                    continue
+                if s.startswith("[") and in_deps:
+                    in_deps = False
+                if in_deps and s and not s.startswith(("#", "[")):
+                    deps.append(s.split("=")[0].strip().strip('"'))
+        elif name in ("build.gradle", "build.gradle.kts"):
+            for m in re.findall(r"['\"]([\w.\-]+:[\w.\-]+)[:'\"]", text)[:10]:
+                deps.append(m.split(":")[-1])
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for d in deps:
+        if d and d not in seen:
+            seen.add(d)
+            ordered.append(d)
+    return ordered
+
+
+def _tech_stack(root: Path, rels: list[Path], languages: list[dict]) -> list[str]:
+    """技术栈(按项目使用主次排列):主语言(按代码行数)→ 核心依赖 → 开发依赖。"""
+    langs = [
+        LANG_NAMES.get(lang["ext"], lang["ext"].lstrip("."))
+        for lang in languages[:3]
+    ]
+    deps = _parse_deps(root, rels)
+    merged = langs + deps
+    return merged[:10]
+
+
 def analyze_repo(repo_dir: str | os.PathLike, *, max_files: int = MAX_CORE_FILES) -> dict:
     """解析仓库目录,产出结构化信息(目录树/语言/核心文件/统计)。"""
     root = Path(repo_dir)
@@ -231,15 +327,18 @@ def analyze_repo(repo_dir: str | os.PathLike, *, max_files: int = MAX_CORE_FILES
 
     rels = _walk(root)
     size = _dir_size(root)
+    languages = _language_stats(root, rels)
     return {
         "root": str(root),
         "name": root.name,
         "tree": _build_tree(root, rels),
-        "languages": _language_stats(root, rels),
+        "languages": languages,
         "core_files": _core_files(root, rels)[:max_files],
         "stats": {
             "file_count": len(rels),
             "size_bytes": size,
             "oversize": size > MAX_REPO_BYTES,
         },
+        "description": _extract_description(root, rels),
+        "tech_stack": _tech_stack(root, rels, languages),
     }

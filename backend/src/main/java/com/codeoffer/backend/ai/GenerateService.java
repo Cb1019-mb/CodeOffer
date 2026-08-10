@@ -86,6 +86,17 @@ public class GenerateService {
             transition(project, task, ProjectStatus.ANALYZING, 25);
             Map<String, Object> repoInfo = ai.analyze(repoDir);
             project.setRepoInfo(mapper.writeValueAsString(repoInfo));
+            // 描述与技术栈(解析自 README 与依赖清单,按主次排列)写入项目信息
+            String desc = String.valueOf(repoInfo.getOrDefault("description", ""));
+            project.setDescription(desc.isBlank() || "null".equals(desc) ? null : desc);
+            Object rawStack = repoInfo.get("tech_stack");
+            if (rawStack instanceof List<?> list) {
+                List<String> stack = list.stream()
+                        .map(String::valueOf)
+                        .filter(s -> !s.isBlank() && !"null".equals(s))
+                        .toList();
+                project.setTechStack(stack.isEmpty() ? null : String.join(", ", stack));
+            }
             projects.save(project);
 
             // 3) 生成

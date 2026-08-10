@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Card, Empty, Input, Modal, Popover, Space, Tag, Typography, message } from 'antd'
+import { Button, Card, Empty, Input, Modal, Popover, Space, Tag, message } from 'antd'
 import { EditOutlined, ReloadOutlined, UndoOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import type { CardView } from '../types'
@@ -158,14 +158,7 @@ export default function CardList({ projectId, cards, onChanged }: Props) {
                 {card.userInput && card.userInput.length > 120 ? '…' : ''}
               </Tag>
             )}
-            {card.type === 'FLOW_DIAGRAM' ? (
-              <MarkdownRenderer content={card.content ?? card.aiDraft ?? ''} />
-            ) : (
-              <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
-                {(card.content ?? card.aiDraft ?? '').slice(0, 600)}
-                {(card.content?.length ?? 0) > 600 ? '…' : ''}
-              </Typography.Paragraph>
-            )}
+            <MarkdownRenderer content={card.content ?? card.aiDraft ?? ''} />
             {card.type === 'RUN_GUIDE' && (
               <RunGuideInput projectId={projectId} card={card} onChanged={onChanged} />
             )}

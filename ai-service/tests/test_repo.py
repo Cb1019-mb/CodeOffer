@@ -15,8 +15,11 @@ def sample_repo(tmp_path: Path) -> Path:
     (root / ".git").mkdir()
     (root / "node_modules" / "pkg").mkdir(parents=True)
 
-    (root / "README.md").write_text("# Sample Project\n", encoding="utf-8")
-    (root / "pom.xml").write_text("<project></project>", encoding="utf-8")
+    (root / "README.md").write_text("# Sample Project\n\n这是一个示例项目,用于演示仓库解析逻辑。\n", encoding="utf-8")
+    (root / "pom.xml").write_text(
+        "<project><dependencies><dependency><groupId>x</groupId><artifactId>spring-boot-starter-web</artifactId></dependency></dependencies></project>",
+        encoding="utf-8",
+    )
     app_java = "\n".join(f"// line {i}" for i in range(100))
     (root / "src" / "main" / "java" / "com" / "x" / "App.java").write_text(app_java, encoding="utf-8")
     util_java = "\n".join(f"// line {i}" for i in range(50))
@@ -54,6 +57,17 @@ def test_skips_ignored_dirs(sample_repo: Path):
     tree_str = str(info["tree"])
     assert "node_modules" not in tree_str
     assert ".git" not in tree_str
+
+
+def test_description_extracted_from_readme(sample_repo: Path):
+    info = analyze_repo(str(sample_repo))
+    assert "示例项目" in info["description"]
+
+
+def test_tech_stack_primary_language_first(sample_repo: Path):
+    info = analyze_repo(str(sample_repo))
+    assert info["tech_stack"][0] == "Java"  # 主语言(行数最多)在前
+    assert any("spring-boot" in t for t in info["tech_stack"])
 
 
 def test_missing_dir_raises(tmp_path: Path):

@@ -173,7 +173,14 @@ export default function ProjectPage() {
         )}
 
         {task?.status === 'FAILED' && (
-          <Alert type="error" showIcon message="生成失败" description={task.errorMsg ?? '未知错误'} />
+          <Card title="生成失败">
+            <Alert type="error" showIcon message="生成失败" description={task.errorMsg ?? '未知错误'} />
+            <div style={{ marginTop: 12, textAlign: 'center' }}>
+              <Button type="primary" icon={<ReloadOutlined />} loading={regenerating} onClick={regenerate} size="large">
+                重新生成项目
+              </Button>
+            </div>
+          </Card>
         )}
 
         <Card title="项目信息">
