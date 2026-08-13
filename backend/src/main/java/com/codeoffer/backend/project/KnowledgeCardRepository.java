@@ -8,8 +8,6 @@ public interface KnowledgeCardRepository extends JpaRepository<KnowledgeCard, Lo
 
     List<KnowledgeCard> findByProjectIdOrderByIdAsc(Long projectId);
 
-    long countByProjectId(Long projectId);
-
     void deleteByProjectId(Long projectId);
 
     Optional<KnowledgeCard> findByProjectIdAndType(Long projectId, CardType type);

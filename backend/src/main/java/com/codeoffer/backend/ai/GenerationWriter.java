@@ -13,7 +13,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tools.jackson.databind.ObjectMapper;
 
 /**
  * 生成结果的持久化写入器:删除+重建、更新等写操作放在独立短事务中执行。
@@ -27,15 +26,12 @@ public class GenerationWriter {
 
     private final KnowledgeCardRepository cards;
     private final ResumeEntryRepository resumes;
-    private final ObjectMapper mapper;
 
     public GenerationWriter(
             KnowledgeCardRepository cards,
-            ResumeEntryRepository resumes,
-            ObjectMapper mapper) {
+            ResumeEntryRepository resumes) {
         this.cards = cards;
         this.resumes = resumes;
-        this.mapper = mapper;
     }
 
     /**
@@ -146,14 +142,6 @@ public class GenerationWriter {
         } catch (Exception e) {
             log.warn("未知卡片类型: {},降级为 TAKEAWAY", type);
             return CardType.TAKEAWAY;
-        }
-    }
-
-    private String json(Object value) {
-        try {
-            return mapper.writeValueAsString(value);
-        } catch (Exception e) {
-            return String.valueOf(value);
         }
     }
 }

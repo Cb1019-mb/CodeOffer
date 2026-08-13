@@ -1,124 +1,433 @@
-# CodeOffer · 智能项目学习与简历生成引擎
+<div align="center">
 
-> **核心目标**:利用 AI 将 GitHub 开源项目转化为个人简历上的核心竞争力,实现从「代码阅读」到「Offer 获取」的高效转化。
+# 🧠 CodeOffer — AI 简历知识库生成平台
 
-## 为什么做这个项目
+> 输入一个 GitHub/Gitee/GitLab 仓库地址，AI 自动生成 **知识卡片、项目体检报告、核心流程图、STAR 简历与模拟面试题**，帮助你真正「读懂并讲出」一个开源项目。
 
-- **学习转化难**:优秀开源项目多,但常止步于「跑通代码」,缺乏深度理解与内化。
-- **简历产出难**:做过很多 Demo,却不知道如何挖掘亮点、写成有竞争力的 STAR 简历描述。
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+![Java](https://img.shields.io/badge/Java-21-orange)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1-green)
+![React](https://img.shields.io/badge/React-19-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-blue)
 
-**核心价值主张**:不是笔记工具,而是**主动式的学习内化引擎**——覆盖学习旅程全阶段:
+</div>
 
+---
+
+## 目录
+
+- [项目概述](#一项目概述)
+- [技术栈](#二技术栈)
+- [环境配置与安装](#三环境配置与安装)
+- [使用指南](#四使用指南)
+- [API 文档](#五api-文档)
+- [项目结构](#六项目结构)
+- [贡献规范](#七贡献规范)
+- [许可证](#八许可证)
+- [联系方式与致谢](#九联系方式与致谢)
+
+---
+
+## 一、项目概述
+
+### 1.1 简介
+
+**CodeOffer** 是一个「学习型 AI 助手」Web 平台。传统的「读开源项目」往往止步于 `git clone` 之后的一头雾水。CodeOffer 通过 **双层服务架构**（Java 业务后端 + Python AI 服务），对任意受信任的仓库地址完成：
+
+1. **浅克隆**并静态解析仓库（目录树、语言统计、核心文件）；
+2. 调用大模型生成结构化知识产物；
+3. 通过前端呈现，并支持**编辑、自测、复习**等闭环学习流程。
+
+它面向的典型场景是：求职者准备项目面试、开发者快速上手陌生代码库、复盘技术亮点。
+
+### 1.2 主要特性
+
+- **一键录入**：粘贴仓库 URL 即自动触发生成，全流程异步执行并实时反馈进度。
+- **五类知识产物**：
+  - 📋 **知识卡片**：架构设计 / 技术难点 / 项目亮点 / 学习收获 / 运行指南
+  - 🏥 **项目体检报告**：值不值得学 + 学习路线建议
+  - 🧭 **核心流程图**：Mermaid 可视化关键流程
+  - 📝 **STAR 简历描述**：可直接用于项目简历
+  - 🎯 **模拟面试题**：基础 / 进阶 / 深挖三档
+- **迭代编辑**：AI 草稿 → 采纳或手写定稿；已编辑内容在重新生成时**不会被覆盖**。
+- **自测与复习**：卡片掌握度（0–5 级）+ 间隔复习队列，内置待复习队列。
+- **完整成果管理**：确认入库、删除项目、整仓重新生成。
+
+---
+
+## 二、技术栈
+
+| 层次 | 技术 | 说明 |
+| --- | --- | --- |
+| **后端** | Java 21 · Spring Boot 4.1 | 业务 API、状态机、异步生成编排 |
+| | Spring Data JPA · SQLite (Xerial JDBC) | 数据持久化（测试用 H2） |
+| | Spring Actuator · Validation | 健康检查与参数校验 |
+| **AI 服务** | Python 3.13 · FastAPI · Uvicorn | 仓库抓取/解析 + LLM 调用 |
+| | GitPython · httpx · pydantic | 仓库操作 / HTTP 客户端 / 数据模型 |
+| **前端** | React 19 · TypeScript · Vite | SPA 界面 |
+| | Ant Design 6 · react-router-dom 7 | UI 组件与路由 |
+| | react-markdown · mermaid 11 | Markdown 渲染与流程图 |
+| **工程化** | Maven · npm · oxlint | 构建与代码规范 |
+| **部署** | Docker Compose | 一键容器化 |
+
+> **AI 提供商**：通过 OpenAI 兼容端点接入，支持 `deepseek` / `qwen` / `zhipu`（见 `config/.env.example`）。
+
+---
+
+## 三、环境配置与安装
+
+### 3.1 环境要求
+
+| 依赖 | 版本 |
+| --- | --- |
+| JDK | 21+ |
+| Maven | 3.9+（仓库自带 `mvnw.cmd`） |
+| Node.js | 20+（推荐 22 LTS） |
+| Python | 3.11+（本项目开发环境为 3.13） |
+| Git | 2.30+（本地 file 仓库场景） |
+| Docker（可选） | 容器化部署时需要 |
+
+### 3.2 克隆与配置
+
+```bash
+git clone https://github.com/Cb1019-mb/CodeOffer.git
+cd CodeOffer
 ```
-①选项目 → ②跑通 → ③读懂 → ④内化 → ⑤验证 → ⑥沉淀
- 体检报告  运行指南  核心流程图  主动回忆自测  模拟面试题  STAR 简历
+
+复制环境变量模板并填入真实的 LLM Key：
+
+```bash
+cp config/.env.example config/.env
 ```
 
-## 技术架构(双层服务式)
+编辑 `config/.env`：
 
-```
-浏览器 React 18 + Vite + Ant Design 5(SPA,端口 5173 dev / 由后端托管产物)
-   │ HTTP(JSON,开发模式经 Vite proxy)
-   ▼
-Java 层 · Spring Boot 4.1 + Java 21(端口 8080)
-  ├─ 业务编排:项目 CRUD、异步生成状态机(GenTask)、草稿/掌握度管理
-  ├─ 持久化:SQLite + Spring Data JPA
-  ├─ 静态托管:前端构建产物
-  └─ AiServiceClient:HTTP/1.1 调用 Python 服务
-   │ HTTP(JSON)
-   ▼
-Python 层 · FastAPI(端口 8001)
-  ├─ 仓库抓取:GitPython 浅克隆(--depth 1,本地 hash 缓存)
-  ├─ 代码解析:目录树 / 语言统计 / 核心文件启发式提取
-  ├─ 提示词编排:知识卡片 / 流程图 / STAR 简历 / 面试题 / 体检报告
-  └─ LLM 网关:OpenAI 兼容端点,可切换 DeepSeek / 通义 / 智谱
+```dotenv
+# AI 提供商:deepseek / qwen / zhipu(均走 OpenAI 兼容端点)
+LLM_PROVIDER=deepseek
+LLM_BASE_URL=https://api.deepseek.com/v1
+LLM_API_KEY=sk-xxxxxxxxxxxxxxxx
+LLM_MODEL=deepseek-chat
+
+# 端口
+BACKEND_PORT=8080
+AI_SERVICE_PORT=8001
 ```
 
-**职责边界**:Java 不直接碰模型 API,Python 不碰业务数据库,两层仅通过 HTTP 契约交互。
+> ⚠️ `config/.env` **不入库**（见 `.gitignore`）。若在代理/自签名证书环境遇到 SSL 报错，可追加 `LLM_VERIFY_SSL=false`。
 
-## 快速开始
+### 3.3 一键启动（推荐，Windows）
 
-环境要求:JDK 21、Python 3.12+、Node 18+、git;Docker 可选(Compose 部署)。
+仓库提供了开发环境一键启动脚本，会自动创建 Python 虚拟环境并拉起两个服务：
 
 ```powershell
-# 1. 配置 LLM key(国内大模型,OpenAI 兼容端点)
-Copy-Item config\.env.example config\.env
-#    编辑 config\.env:填入 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL
-
-# 2. 一键启动(后端 8080 + AI 服务 8001)
 .\scripts\dev-up.ps1
+```
 
-# 3. 前端开发模式(可选,生产模式前端产物由后端托管)
+启动后访问：
+
+- 后端健康检查：<http://127.0.0.1:8080/api/health>
+- AI 服务健康检查：<http://127.0.0.1:8001/api/health>
+- 前端开发服务器（可选，需单独启动）：见下
+
+### 3.4 手动分步启动
+
+**① AI 服务（端口 8001）**
+
+```bash
+cd ai-service
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt   # Windows
+# 或 source .venv/bin/activate && pip install -r requirements.txt
+.venv\Scripts\python run.py --port 8001
+```
+
+**② 后端（端口 8080）**
+
+```bash
+cd backend
+.\mvnw.cmd spring-boot:run
+```
+
+**③ 前端（开发模式，端口 5173）**
+
+```bash
 cd frontend
 npm install
-npm run dev          # http://localhost:5173
+npm run dev
+```
 
-# 3b. 生产模式:构建前端并复制到后端托管(只需一次;改前端后重跑)
+生产模式下，前端产物会构建并复制到后端 `static` 目录，由 Java 后端统一托管（端口 8080）：
+
+```powershell
 .\scripts\build-frontend.ps1
-
-# 4. 打开浏览器
-#    http://localhost:8080  (后端托管)
-#    http://localhost:5173  (开发模式)
 ```
 
-**端到端自检**(自动构造本地仓库,拉起服务,校验录入→生成→编辑→自测):
+### 3.5 Docker Compose（可选）
 
-```powershell
-.\scripts\e2e.ps1
+```bash
+docker compose up -d
 ```
 
-> 未配置有效 LLM key 时,e2e 验证到「基础设施链路」(克隆/解析/编排/错误处理),AI 生成环节提示配置 key 后重跑。
+Compose 会依次构建并启动 `ai-service`（8001）与 `backend`（8080），后端等待 AI 服务健康后才启动，数据卷挂载到 `./data`。
 
-## 目录结构
+---
+
+## 四、使用指南
+
+### 4.1 基本流程
 
 ```
-frontend/   React SPA(录入/列表/详情/自测/导出)
-backend/    Spring Boot 服务(实体/编排/AI 客户端/API)
-ai-service/ FastAPI 服务(LLM 网关/仓库解析/prompts/测试)
-config/     LLM 与端口配置(.env,不入库)
-scripts/    dev-up.ps1 一键启动、e2e.ps1 端到端自检
-docs/       设计规格(design)与实现计划(plan)
-data/       运行时数据(SQLite 库 + 仓库克隆缓存,git 忽略)
+录入仓库 → 异步生成（克隆→解析→生成）→ 审阅产物 → 编辑/采纳 → 自测复习 → 确认入库
 ```
 
-## 功能清单(已实现)
+### 4.2 核心功能演示
 
-| 功能 | 说明 | 落点 |
-|---|---|---|
-| 项目录入 + 体检报告 | 粘贴仓库 URL,AI 评估学习价值与路线 | M1/M2 |
-| 仓库解析 | 目录树 / 语言统计 / 核心文件 | M1 |
-| 知识卡片 | 架构/难点/亮点/收获/运行指南 + 核心流程图(Mermaid) | M1/M2 |
-| 人机协作编辑 | 编辑/重新生成/采纳草稿,已编辑内容不被覆盖 | M4 |
-| 简历与面试题 | STAR 四段 + 基础/进阶/深挖题库 | M1/M2 |
-| 主动回忆自测 | 翻卡自测,掌握/生疏自评,间隔复习 | M5 |
-| 掌握度徽标 | 列表页卡片数/已掌握/待复习 | M3/M5 |
-| 导出 | 全部成果 Markdown 导出、简历一键复制 | M6 |
+1. **录入项目**：在首页输入受信任平台（GitHub / Gitee / GitLab / GitCode / Bitbucket 等）的 HTTPS 仓库地址，点击创建。后端校验通过后立即返回 `projectId` 并异步生成。
+2. **查看进度**：项目详情页轮询 `/api/projects/{id}/task`，展示任务状态与进度。
+3. **审阅知识卡片**：生成完成后（`REVIEW` 状态）浏览五类卡片。对每张卡片可：
+   - 编辑定稿（`PUT .../content`）；
+   - 采纳 AI 草稿（`POST .../adopt`）；
+   - 重新生成单卡（`POST .../regenerate`）；
+   - 补充个人输入（`POST .../user-input`）。
+4. **自测复习**：对卡片进行「掌握 / 生疏」自评，更新掌握度与下次复习时间；「待复习」队列会汇总到期卡片。
+5. **导出与入库**：审阅满意后点击「确认入库」，项目状态变为 `DONE`，成果持久化保存。
 
-## 测试
+### 4.3 状态机
 
-```powershell
-# Python 层(22 个,LLM 网关/仓库解析/API 端点,mock 响应零费用)
-cd ai-service; .\.venv\Scripts\python.exe -m pytest
+项目状态流转如下：
 
-# Java 层(9 个,编排状态机/控制器/编辑/自测,H2 内存库)
-cd backend; .\mvnw.cmd test
+```
+PENDING → CLONING → ANALYZING → GENERATING → REVIEW → DONE
+                              ↘（任意失败）       FAILED
 ```
 
-## 里程碑
+- `REVIEW` / `DONE` 状态可「确认入库」；
+- 任何非「生成中」状态均可「重新生成」整仓（已编辑内容不会被覆盖）。
 
-- [x] M0 工程骨架:双层服务可独立启动(健康检查/静态托管/Compose)
-- [x] M1 Python AI 服务:LLM 网关 + 仓库抓取解析 + 7 契约端点
-- [x] M2 Java 后端:实体/状态机/生成编排/项目 API
-- [x] M3 前端基础:录入/进度条/列表(掌握度徽标)
-- [x] M4 生成与编辑:卡片/简历编辑 + 重新生成不覆盖已编辑
-- [x] M5 内化功能:N1 主动回忆自测 + N7 掌握度
-- [x] M6 导出与 E2E:Markdown 导出 + e2e.ps1 全链路
+### 4.4 常见用例
 
-## 扩展路线图(P1)
+| 场景 | 操作 |
+| --- | --- |
+| 准备项目面试 | 录入目标仓库 → 阅读知识卡片 → 练习模拟面试题 |
+| 快速上手陌生代码库 | 录入仓库 → 查看核心流程图与运行指南 |
+| 丰富简历 | 生成 STAR 简历描述并编辑定稿 |
+| 长期复习巩固 | 使用自测与待复习队列管理掌握度 |
 
-- 对话式学习:「如果我来实现」对比练习 + 追问面试模式
-- 完整学习仪表盘(趋势/待复习队列/时长)
-- 简历导出 PDF、多仓库对比
+---
 
-设计文档:`docs/superpowers/specs/2026-08-09-codeoffer-design.md`
-实现计划:`docs/superpowers/plans/2026-08-09-codeoffer-implementation-plan.md`
+## 五、API 文档
+
+服务启动后，交互式 API 文档可直接访问：
+
+- **后端**（Spring Boot）：`/swagger-ui.html`（如启用）
+- **AI 服务**（FastAPI）：<http://127.0.0.1:8001/docs>
+
+### 5.1 后端 API（`/api`）
+
+#### 项目
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/api/projects` | 录入仓库，创建项目与任务并异步生成 |
+| `GET` | `/api/projects` | 项目列表（含掌握度徽标聚合） |
+| `GET` | `/api/projects/{id}` | 项目详情（卡片 + 简历） |
+| `GET` | `/api/projects/{id}/task` | 最新生成任务（前端轮询进度） |
+| `GET` | `/api/projects/{id}/cards` | 知识卡片列表 |
+| `GET` | `/api/projects/{id}/resume` | 简历产出 |
+| `POST` | `/api/projects/{id}/confirm` | 确认入库（REVIEW/DONE → DONE） |
+| `DELETE` | `/api/projects/{id}` | 删除项目及全部关联数据 |
+| `POST` | `/api/projects/{id}/regenerate` | 重新生成整个项目 |
+
+#### 卡片
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `PUT` | `/api/projects/{id}/cards/{cardId}/content` | 编辑卡片定稿 |
+| `POST` | `/api/projects/{id}/cards/{cardId}/adopt` | 采纳 AI 草稿 |
+| `POST` | `/api/projects/{id}/cards/{cardId}/regenerate` | 重新生成单卡 |
+| `POST` | `/api/projects/{id}/cards/{cardId}/user-input` | 补充个人输入 |
+| `POST` | `/api/projects/{id}/cards/{cardId}/review` | 自测（掌握/生疏） |
+| `GET` | `/api/projects/{id}/review-queue` | 待复习队列 |
+
+#### 简历
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `PUT` | `/api/projects/{id}/resume/star` | 编辑 STAR 简历 |
+| `POST` | `/api/projects/{id}/resume/regenerate` | 重新生成简历与面试题 |
+
+#### 健康检查
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/health` | 后端存活探针 |
+
+#### 调用示例
+
+```bash
+# 录入仓库（触发异步生成）
+curl -X POST http://127.0.0.1:8080/api/projects \
+  -H "Content-Type: application/json" \
+  -d '{"repoUrl": "https://github.com/octocat/Hello-World"}'
+# => {"projectId":1,"taskId":1,"status":"PENDING"}
+
+# 轮询生成进度
+curl http://127.0.0.1:8080/api/projects/1/task
+
+# 获取项目详情（卡片 + 简历）
+curl http://127.0.0.1:8080/api/projects/1
+```
+
+### 5.2 AI 服务 API（`/api`）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/health` | AI 服务存活探针 |
+| `POST` | `/api/repos/clone` | 浅克隆仓库到缓存（命中返回缓存） |
+| `POST` | `/api/repos/analyze` | 静态解析仓库（目录树/语言统计/核心文件） |
+| `POST` | `/api/ai/health-report` | 生成项目体检报告 |
+| `POST` | `/api/ai/knowledge-cards` | 生成知识卡片 |
+| `POST` | `/api/ai/flow-diagram` | 生成核心流程 Mermaid 图 |
+| `POST` | `/api/ai/resume` | 生成 STAR 简历描述 |
+| `POST` | `/api/ai/interview-questions` | 生成模拟面试题 |
+
+---
+
+## 六、项目结构
+
+```
+CodeOffer/
+├── backend/                      # Java 业务后端 (Spring Boot)
+│   ├── pom.xml
+│   └── src/main/java/com/codeoffer/backend/
+│       ├── BackendApplication.java
+│       ├── HealthController.java
+│       ├── ai/                   # 异步生成编排与 AI 客户端
+│       │   ├── AiServiceClient.java
+│       │   ├── GenerateService.java
+│       │   └── GenerationWriter.java
+│       ├── config/               # 异步、Web、SPA 回退配置
+│       └── project/              # 领域模型、仓库、控制器、API 视图
+│   └── src/test/                 # 集成与控制器测试
+│
+├── ai-service/                   # Python AI 服务 (FastAPI)
+│   ├── main.py                   # 路由入口
+│   ├── schemas.py                # Pydantic 请求/响应模型
+│   ├── run.py                    # 服务启动器 (SO_REUSEADDR)
+│   ├── llm/gateway.py            # LLM 网关 (OpenAI 兼容)
+│   ├── prompts/                  # 各类生成任务的 Prompt 构建
+│   ├── services/repo.py          # 仓库克隆与静态解析
+│   └── tests/                    # pytest 测试
+│
+├── frontend/                     # React SPA
+│   ├── src/
+│   │   ├── api/client.ts         # 后端 API 客户端
+│   │   ├── pages/                # HomePage / ProjectPage
+│   │   ├── components/           # CardList / QuizMode / ResumeSection / ...
+│   │   ├── utils/export.ts       # 导出工具
+│   │   ├── types.ts
+│   │   ├── App.tsx / main.tsx
+│   └── package.json
+│
+├── scripts/                      # 开发/构建/E2E 脚本 (PowerShell)
+│   ├── dev-up.ps1
+│   ├── build-frontend.ps1
+│   └── e2e.ps1
+│
+├── config/
+│   ├── .env.example              # 环境变量模板
+│   └── .env                      # 本地配置（不入库）
+├── data/                         # 运行时数据（DB / 克隆仓库 / 日志，不入库）
+├── docs/superpowers/             # 设计与实现文档
+├── docker-compose.yml
+└── LICENSE
+```
+
+---
+
+## 七、贡献规范
+
+欢迎提交 Issue 与 Pull Request！请遵循以下约定，保证协作的一致性。
+
+### 7.1 分支管理
+
+- 主分支：`master`（受保护，禁止直接推送）。
+- 功能分支命名：`feature/<简述>`、`fix/<简述>`、`docs/<简述>`。
+- 提交前请确保当前分支基于最新的 `master`。
+
+### 7.2 提交信息格式
+
+采用 [Conventional Commits](https://www.conventionalcommits.org/) 规范：
+
+```
+<type>(<scope>): <subject>
+
+<body>(可选)
+```
+
+- `type`：`feat` / `fix` / `refactor` / `docs` / `test` / `chore` / `style`
+- `scope`（可选）：`backend` / `ai-service` / `frontend` / `scripts` / `docs`
+
+示例：
+
+```text
+feat(frontend): 增加复习队列倒计时显示
+
+fix(ai-service): 修复 LLM 超时导致的 502 错误
+```
+
+### 7.3 代码规范
+
+- **后端**：遵循 Spring 官方约定，保持 `project` 包内「控制器 — 服务 — 仓库 — 视图」分层；公共映射逻辑收敛到 `toXxxView()` 辅助方法，避免内联重复。
+- **AI 服务**：保持「服务只处理仓库 + 大模型、不触碰业务 DB」的职责边界；新增 Prompt 请放入 `prompts/`。
+- **前端**：使用 `npm run lint`（oxlint）校验，类型错误用 `npm run build` 拦截。
+- **测试**：后端 `.\mvnw.cmd test`、AI 服务 `.venv\Scripts\python -m pytest`；新增功能应补充相应单测。
+
+### 7.4 Pull Request 流程
+
+1. Fork 仓库并创建功能分支；
+2. 提交代码，确保本地测试全部通过；
+3. 向 `master` 发起 PR，标题遵循提交信息规范；
+4. 通过 CI 与 Reviewer 审查后合并（squash merge）。
+
+---
+
+## 八、许可证
+
+本项目基于 **[Apache License 2.0](LICENSE)** 开源。
+
+```
+Copyright [2026] [CodeOffer Contributors]
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
+
+---
+
+## 九、联系方式与致谢
+
+### 联系方式
+
+- **仓库**：<https://github.com/Cb1019-mb/CodeOffer>
+- 欢迎通过 GitHub Issues 提交缺陷、功能建议或疑问。
+
+### 致谢
+
+- 感谢 [Spring Boot](https://spring.io/projects/spring-boot)、[FastAPI](https://fastapi.tiangolo.com/)、[React](https://react.dev/)、[Ant Design](https://ant.design/) 等优秀开源框架。
+- 感谢 DeepSeek / Qwen / 智谱 AI 提供的大模型能力。
+- 感谢所有为本项目贡献代码、文档与反馈的贡献者。
+
+---
+
+*文档维护：随代码演进持续更新。若发现与实现不一致，欢迎提交 PR 修正。*

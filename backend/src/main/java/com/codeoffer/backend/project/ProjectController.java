@@ -90,21 +90,9 @@ public class ProjectController {
     public ProjectDetail detail(@PathVariable Long id) {
         Project p = requireProject(id);
         List<CardView> cardViews = cards.findByProjectIdOrderByIdAsc(id).stream()
-                .map(c -> new CardView(
-                        c.getId(),
-                        c.getType().name(),
-                        c.getType().getLabel(),
-                        c.getTitle(),
-                        c.getContent(),
-                        c.getAiDraft(),
-                        c.getUserInput(),
-                        c.isEdited(),
-                        c.getMastery(),
-                        c.getNextReview()))
+                .map(this::toCardView)
                 .toList();
-        ResumeView resume = resumes.findByProjectId(id)
-                .map(r -> new ResumeView(r.getStarContent(), r.getInterviewQas(), r.isEdited()))
-                .orElse(null);
+        ResumeView resume = resumes.findByProjectId(id).map(this::toResumeView).orElse(null);
         return new ProjectDetail(
                 p.getId(),
                 p.getName(),
@@ -135,17 +123,7 @@ public class ProjectController {
     public List<CardView> cards(@PathVariable Long id) {
         requireProject(id);
         return cards.findByProjectIdOrderByIdAsc(id).stream()
-                .map(c -> new CardView(
-                        c.getId(),
-                        c.getType().name(),
-                        c.getType().getLabel(),
-                        c.getTitle(),
-                        c.getContent(),
-                        c.getAiDraft(),
-                        c.getUserInput(),
-                        c.isEdited(),
-                        c.getMastery(),
-                        c.getNextReview()))
+                .map(this::toCardView)
                 .toList();
     }
 
@@ -153,16 +131,8 @@ public class ProjectController {
     public ResumeView resume(@PathVariable Long id) {
         requireProject(id);
         return resumes.findByProjectId(id)
-                .map(r -> new ResumeView(r.getStarContent(), r.getInterviewQas(), r.isEdited()))
+                .map(this::toResumeView)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "尚无简历产出"));
-    }
-
-    @GetMapping("/{id}/questions")
-    public String questions(@PathVariable Long id) {
-        requireProject(id);
-        return resumes.findByProjectId(id)
-                .map(ResumeEntry::getInterviewQas)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "尚无面试题库"));
     }
 
     /** 用户确认 REVIEW → DONE(成果入库)。 */
