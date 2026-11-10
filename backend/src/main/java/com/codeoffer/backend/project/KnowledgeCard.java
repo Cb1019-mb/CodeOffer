@@ -30,15 +30,15 @@ public class KnowledgeCard {
     private String title;
 
     /** 用户定稿(未编辑时与 aiDraft 相同) */
-    @Column(length = 10000)
+    @Column(length = 20000)
     private String content;
 
     /** AI 原始草稿 */
-    @Column(length = 10000)
+    @Column(length = 20000)
     private String aiDraft;
 
     /** 用户补充输入(如对比练习的实现思路,JSON) */
-    @Column(length = 10000)
+    @Column(length = 20000)
     private String userInput;
 
     /** 用户是否手动编辑过(编辑后不再被重新生成覆盖) */
