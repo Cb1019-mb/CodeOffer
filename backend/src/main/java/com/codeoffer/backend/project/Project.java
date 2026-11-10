@@ -11,14 +11,14 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 /**
- * 一个 GitHub 仓库为一个项目;JSON 字段以字符串存储(SQLite/H2 的 TEXT)。
+ * 一个 GitHub 仓库为一个项目;JSON 字段以字符串存储(MySQL/H2 的文本列)。
  */
 @Entity
 @Table(name = "project")
 public class Project {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @Column(nullable = false)

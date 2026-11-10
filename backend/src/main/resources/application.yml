@@ -1,16 +1,22 @@
 spring:
   application:
     name: backend
+  config:
+    # 本地开发从 config/.env 读取 MYSQL_*（该文件不入库）；容器内由 env_file 注入，此处可缺省
+    import: optional:file:../config/.env[.properties]
   datasource:
-    url: jdbc:sqlite:${DATA_DIR:../data}/codeoffer.db
-    driver-class-name: org.sqlite.JDBC
-    hikari:
-      # 并发写时等待锁最多 5 秒,避免直接 SQLITE_BUSY 报错
-      connection-init-sql: "PRAGMA busy_timeout=5000"
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DB:codeoffer}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: ${MYSQL_USER:codeoffer_app}
+    password: ${MYSQL_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:
       ddl-auto: update
-    database-platform: org.hibernate.community.dialect.SQLiteDialect
+    properties:
+      hibernate:
+        # Instant 统一按 UTC 存库，与迁移脚本的时间戳换算保持一致
+        jdbc:
+          time_zone: UTC
   mvc:
     static-path-pattern: /**
 
