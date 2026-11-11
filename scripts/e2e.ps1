@@ -60,6 +60,8 @@ if (-not $RepoUrl) {
 
 # 2) 启动 AI 服务(8001)
 Write-Host "[2/6] 启动 AI 服务 (8001)..."
+# e2e 用较短调用间隔控制总时长;429 由网关退避重试兜底,失败走基础设施断言分支
+$env:LLM_MIN_INTERVAL_SECONDS = "20"
 Start-Process -FilePath (Join-Path $ws "ai-service\.venv\Scripts\python.exe") `
     -ArgumentList "run.py", "--port", "8001" `
     -WorkingDirectory (Join-Path $ws "ai-service") -WindowStyle Hidden `
@@ -103,7 +105,7 @@ Write-Host "      服务就绪: AI 服务 + 后端"
 # 4.5) 注册 e2e 账号并建立会话(e2e 模式验证码已关闭);BYOK:为其创建并激活 LLM 档案
 Write-Host "[4.5/6] 注册 e2e 账号与 LLM 档案..."
 $base = "http://127.0.0.1:8080"
-Invoke-WebRequest -Uri "$base/api/auth/captcha" -SessionVariable sess -TimeoutSec 5 | Out-Null
+Invoke-WebRequest -Uri "$base/api/auth/captcha" -SessionVariable sess -UseBasicParsing -TimeoutSec 5 | Out-Null
 $xsrf = ($sess.Cookies.GetCookies($base) | Where-Object { $_.Name -eq "XSRF-TOKEN" }).Value
 $authH = @{ "X-XSRF-TOKEN" = $xsrf }
 try {
