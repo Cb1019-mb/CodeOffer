@@ -9,6 +9,9 @@ import com.codeoffer.backend.project.GenTaskRepository;
 import com.codeoffer.backend.project.Project;
 import com.codeoffer.backend.project.ProjectRepository;
 import com.codeoffer.backend.project.ProjectStatus;
+import com.codeoffer.backend.settings.CryptoService;
+import com.codeoffer.backend.settings.LlmProfileRepository;
+import com.codeoffer.backend.settings.SettingsService;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,6 +59,12 @@ class ProjectControllerTest {
     private AppUserRepository users;
     @Autowired
     private PasswordEncoder encoder;
+    @Autowired
+    private LlmProfileRepository profiles;
+    @Autowired
+    private SettingsService settings;
+    @Autowired
+    private CryptoService crypto;
 
     @MockitoBean
     private AiServiceClient ai;
@@ -66,13 +75,8 @@ class ProjectControllerTest {
 
     @BeforeEach
     void seedTestUser() {
-        AppUser u = users.findByUsername("testuser").orElseGet(() -> {
-            AppUser n = new AppUser();
-            n.setUsername("testuser");
-            n.setPasswordHash(encoder.encode("pass12345"));
-            return users.save(n);
-        });
-        testUserId = u.getId();
+        testUserId = TestSupport.seedWithProfile(users, encoder, profiles, settings, crypto,
+                "testuser", "https://test-llm.test/v1", "test-key", "test-model");
     }
 
     /** 每次创建使用唯一 URL,避免重复录入检测(409)干扰测试。 */
@@ -85,13 +89,13 @@ class ProjectControllerTest {
         when(ai.analyze(anyString())).thenReturn(
                 Map.of("name", "fake", "languages", List.of(), "core_files", List.of(),
                         "stats", Map.of("file_count", 1), "tree", List.of()));
-        when(ai.knowledgeCards(any(), anyList())).thenReturn(Map.of("cards", List.of(
+        when(ai.knowledgeCards(any(), anyList(), any())).thenReturn(Map.of("cards", List.of(
                 Map.of("type", "architecture", "title", "架构", "content", "内容1"),
                 Map.of("type", "takeaway", "title", "收获", "content", "内容4"))));
-        when(ai.flowDiagram(any())).thenReturn(Map.of("title", "flow", "description", "d", "mermaid", "graph LR"));
-        when(ai.resume(any())).thenReturn(
+        when(ai.flowDiagram(any(), any())).thenReturn(Map.of("title", "flow", "description", "d", "mermaid", "graph LR"));
+        when(ai.resume(any(), any())).thenReturn(
                 Map.of("star", Map.of("situation", "s", "task", "t", "action", "a", "result", "r", "summary", "s")));
-        when(ai.interviewQuestions(any())).thenReturn(
+        when(ai.interviewQuestions(any(), any())).thenReturn(
                 Map.of("questions", List.of(Map.of("level", "base", "question", "q", "answer", "a"))));
     }
 

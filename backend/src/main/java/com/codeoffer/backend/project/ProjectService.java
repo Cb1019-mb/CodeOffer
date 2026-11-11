@@ -32,18 +32,21 @@ public class ProjectService {
     private final ResumeEntryRepository resumes;
     private final GenTaskRepository tasks;
     private final GenerateService generate;
+    private final com.codeoffer.backend.settings.ProfileService profileService;
 
     public ProjectService(
             ProjectRepository projects,
             KnowledgeCardRepository cards,
             ResumeEntryRepository resumes,
             GenTaskRepository tasks,
-            GenerateService generate) {
+            GenerateService generate,
+            com.codeoffer.backend.settings.ProfileService profileService) {
         this.projects = projects;
         this.cards = cards;
         this.resumes = resumes;
         this.tasks = tasks;
         this.generate = generate;
+        this.profileService = profileService;
     }
 
     // 注意:不加 @Transactional——@Async 生成线程在 READ_COMMITTED 下看不到未提交行,
@@ -57,6 +60,7 @@ public class ProjectService {
         if (projects.findByRepoUrlAndUserId(url, userId).isPresent()) {
             throw new ApiException(HttpStatus.CONFLICT, "该仓库已录入过,请勿重复提交");
         }
+        profileService.runtimeFor(userId); // 预检:无激活档案 409 友好提示
         Project project = new Project();
         project.setRepoUrl(url);
         project.setName(deriveName(url));
@@ -68,7 +72,7 @@ public class ProjectService {
         task.setUserId(userId);
         task = tasks.save(task);
 
-        generate.runFullGeneration(project.getId(), task.getId());
+        generate.runFullGeneration(project.getId(), task.getId(), userId);
         return new CreateResponse(project.getId(), task.getId(), project.getStatus().name());
     }
 
@@ -142,6 +146,7 @@ public class ProjectService {
                 .orElse(false)) {
             throw new ApiException(HttpStatus.CONFLICT, "已有生成任务进行中,请等待完成后再重新生成");
         }
+        profileService.runtimeFor(userId); // 预检:无激活档案 409 友好提示
         p.setStatus(ProjectStatus.PENDING);
         p.setUpdatedAt(Instant.now());
         projects.save(p);
@@ -149,7 +154,7 @@ public class ProjectService {
         task.setProjectId(id);
         task.setUserId(userId);
         task = tasks.save(task);
-        generate.runFullGeneration(id, task.getId());
+        generate.runFullGeneration(id, task.getId(), userId);
         return new CreateResponse(id, task.getId(), p.getStatus().name());
     }
 

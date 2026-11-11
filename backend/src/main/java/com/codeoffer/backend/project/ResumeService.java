@@ -14,14 +14,17 @@ public class ResumeService {
     private final ResumeEntryRepository resumes;
     private final ProjectService projectService;
     private final GenerateService generate;
+    private final com.codeoffer.backend.settings.ProfileService profileService;
 
     public ResumeService(
             ResumeEntryRepository resumes,
             ProjectService projectService,
-            GenerateService generate) {
+            GenerateService generate,
+            com.codeoffer.backend.settings.ProfileService profileService) {
         this.resumes = resumes;
         this.projectService = projectService;
         this.generate = generate;
+        this.profileService = profileService;
     }
 
     public ResumeView editStar(Long userId, Long id, String starContent) {
@@ -39,6 +42,7 @@ public class ResumeService {
 
     public ResumeView regenerate(Long userId, Long id) {
         projectService.requireProject(userId, id);
-        return ResumeView.from(generate.regenerateResume(id));
+        profileService.runtimeFor(userId); // 预检:无激活档案 409 友好提示
+        return ResumeView.from(generate.regenerateResume(id, userId));
     }
 }

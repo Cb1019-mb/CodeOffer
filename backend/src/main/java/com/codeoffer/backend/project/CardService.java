@@ -14,20 +14,23 @@ import org.springframework.stereotype.Service;
 @Service
 public class CardService {
 
-    /** 掌握度 0-5 对应的复习间隔(天);A 阶段将改为按用户设置读取。 */
-    static final int[] REVIEW_INTERVAL_DAYS = {0, 1, 3, 7, 15, 30};
-
     private final KnowledgeCardRepository cards;
     private final ProjectService projectService;
     private final GenerateService generate;
+    private final com.codeoffer.backend.settings.ProfileService profileService;
+    private final com.codeoffer.backend.settings.SettingsService settings;
 
     public CardService(
             KnowledgeCardRepository cards,
             ProjectService projectService,
-            GenerateService generate) {
+            GenerateService generate,
+            com.codeoffer.backend.settings.ProfileService profileService,
+            com.codeoffer.backend.settings.SettingsService settings) {
         this.cards = cards;
         this.projectService = projectService;
         this.generate = generate;
+        this.profileService = profileService;
+        this.settings = settings;
     }
 
     /** 编辑卡片定稿:标记 edited,重新生成不再覆盖。 */
@@ -70,20 +73,22 @@ public class CardService {
     /** 重新生成单卡:归属校验后委托生成服务(已编辑卡片只更新草稿)。 */
     public CardView regenerateCard(Long userId, Long id, Long cardId) {
         requireOwnedCard(userId, id, cardId);
-        return CardView.from(generate.regenerateCard(cardId));
+        profileService.runtimeFor(userId); // 预检:无激活档案 409 友好提示
+        return CardView.from(generate.regenerateCard(cardId, userId));
     }
 
-    /** 自评更新掌握度与下次复习时间:掌握 → mastery+1 且间隔递增;生疏 → mastery-2 且立即复习。 */
+    /** 自评更新掌握度与下次复习时间:间隔/扣减/延迟按用户设置实时生效。 */
     public CardView reviewCard(Long userId, Long id, Long cardId, boolean known) {
         KnowledgeCard card = requireOwnedCard(userId, id, cardId);
+        com.codeoffer.backend.settings.SettingsService.ReviewParams rp = settings.reviewFor(userId);
         Instant now = Instant.now();
         if (known) {
             int mastery = Math.min(5, card.getMastery() + 1);
             card.setMastery(mastery);
-            card.setNextReview(now.plus(Duration.ofDays(REVIEW_INTERVAL_DAYS[mastery])));
+            card.setNextReview(now.plus(Duration.ofDays(rp.intervalDays().get(mastery))));
         } else {
-            card.setMastery(Math.max(0, card.getMastery() - 2));
-            card.setNextReview(now.plusSeconds(60));
+            card.setMastery(Math.max(0, card.getMastery() - rp.unknownPenalty()));
+            card.setNextReview(now.plusSeconds(rp.unknownDelaySeconds()));
         }
         card.setLastReviewed(now);
         card.setUpdatedAt(now);

@@ -43,6 +43,7 @@ public class GenerateService {
     private final AiServiceClient ai;
     private final ObjectMapper mapper;
     private final GenerationWriter writer;
+    private final com.codeoffer.backend.settings.ProfileService profileService;
 
     /** 全局生成锁:同一时间只允许一个生成任务,限制并发 LLM 调用并串行写入。 */
     private final ReentrantLock generationLock = new ReentrantLock();
@@ -54,7 +55,8 @@ public class GenerateService {
             GenTaskRepository tasks,
             AiServiceClient ai,
             ObjectMapper mapper,
-            GenerationWriter writer) {
+            GenerationWriter writer,
+            com.codeoffer.backend.settings.ProfileService profileService) {
         this.projects = projects;
         this.cards = cards;
         this.resumes = resumes;
@@ -62,13 +64,14 @@ public class GenerateService {
         this.ai = ai;
         this.mapper = mapper;
         this.writer = writer;
+        this.profileService = profileService;
     }
 
     @Async
-    public void runFullGeneration(Long projectId, Long taskId) {
+    public void runFullGeneration(Long projectId, Long taskId, Long userId) {
         generationLock.lock();
         try {
-            doRunFullGeneration(projectId, taskId);
+            doRunFullGeneration(projectId, taskId, userId);
         } finally {
             generationLock.unlock();
         }
@@ -98,7 +101,7 @@ public class GenerateService {
         }
     }
 
-    private void doRunFullGeneration(Long projectId, Long taskId) {
+    private void doRunFullGeneration(Long projectId, Long taskId, Long userId) {
         Project project;
         GenTask task;
         try {
@@ -109,6 +112,9 @@ public class GenerateService {
             return;
         }
         try {
+            // 0) 用户 LLM 配置快照:生成中途切换档案不影响本次任务
+            LlmRuntime rt = profileService.runtimeFor(userId);
+
             // 1) 克隆
             transition(project, task, ProjectStatus.CLONING, 5);
             String repoDir = ai.cloneRepo(project.getRepoUrl());
@@ -134,7 +140,7 @@ public class GenerateService {
 
             // 2.5) 体检报告(增值产物,失败不阻断主流程)
             try {
-                Map<String, Object> healthResp = ai.healthReport(project.getRepoUrl(), repoInfo);
+                Map<String, Object> healthResp = ai.healthReport(project.getRepoUrl(), repoInfo, rt);
                 project.setHealthReport(buildHealthContent(healthResp));
                 saveProject(project);
             } catch (Exception e) {
@@ -145,12 +151,12 @@ public class GenerateService {
 
             // 3) 生成
             transition(project, task, ProjectStatus.GENERATING, 50);
-            Map<String, Object> cardsResp = ai.knowledgeCards(repoInfo, CARD_TYPES);
+            Map<String, Object> cardsResp = ai.knowledgeCards(repoInfo, CARD_TYPES, rt);
             writer.replaceCards(projectId, project.getUserId(), castCards(cardsResp.get("cards")));
             task.setProgress(70);
             saveTask(task);
 
-            Map<String, Object> flowResp = ai.flowDiagram(repoInfo);
+            Map<String, Object> flowResp = ai.flowDiagram(repoInfo, rt);
             writer.saveFlowCard(
                     projectId,
                     project.getUserId(),
@@ -159,8 +165,8 @@ public class GenerateService {
             task.setProgress(80);
             saveTask(task);
 
-            Map<String, Object> resumeResp = ai.resume(repoInfo);
-            Map<String, Object> qaResp = ai.interviewQuestions(repoInfo);
+            Map<String, Object> resumeResp = ai.resume(repoInfo, rt);
+            Map<String, Object> qaResp = ai.interviewQuestions(repoInfo, rt);
             writer.saveResumeEntry(
                     projectId,
                     project.getUserId(),
@@ -239,18 +245,19 @@ public class GenerateService {
 
     /** 重新生成单张卡片;已编辑过的卡片只更新 AI 草稿,不覆盖用户定稿。 */
     @SuppressWarnings("unchecked")
-    public KnowledgeCard regenerateCard(Long cardId) {
+    public KnowledgeCard regenerateCard(Long cardId, Long userId) {
         KnowledgeCard card = cards.findById(cardId).orElseThrow();
         Project project = projects.findById(card.getProjectId()).orElseThrow();
         if (project.getRepoInfo() == null) {
             throw new IllegalStateException("项目尚未完成解析,无法重新生成");
         }
+        LlmRuntime rt = profileService.runtimeFor(userId);
         Map<String, Object> repoInfo = readRepoInfo(project);
         String newDraft;
         if (card.getType() == CardType.FLOW_DIAGRAM) {
-            newDraft = buildFlowContent(ai.flowDiagram(repoInfo));
+            newDraft = buildFlowContent(ai.flowDiagram(repoInfo, rt));
         } else {
-            Map<String, Object> resp = ai.knowledgeCards(repoInfo, List.of(card.getType().name().toLowerCase()));
+            Map<String, Object> resp = ai.knowledgeCards(repoInfo, List.of(card.getType().name().toLowerCase()), rt);
             List<Map<String, Object>> items = (List<Map<String, Object>>) resp.get("cards");
             if (items == null || items.isEmpty()) {
                 throw new IllegalStateException("AI 未返回卡片内容");
@@ -272,14 +279,15 @@ public class GenerateService {
 
     /** 重新生成简历与面试题;已编辑的字段不被覆盖。 */
     @SuppressWarnings("unchecked")
-    public ResumeEntry regenerateResume(Long projectId) {
+    public ResumeEntry regenerateResume(Long projectId, Long userId) {
         Project project = projects.findById(projectId).orElseThrow();
         if (project.getRepoInfo() == null) {
             throw new IllegalStateException("项目尚未完成解析,无法重新生成");
         }
+        LlmRuntime rt = profileService.runtimeFor(userId);
         Map<String, Object> repoInfo = readRepoInfo(project);
-        Map<String, Object> resumeResp = ai.resume(repoInfo);
-        Map<String, Object> qaResp = ai.interviewQuestions(repoInfo);
+        Map<String, Object> resumeResp = ai.resume(repoInfo, rt);
+        Map<String, Object> qaResp = ai.interviewQuestions(repoInfo, rt);
 
         ResumeEntry entry = resumes.findByProjectId(projectId).orElseGet(() -> {
             ResumeEntry e = new ResumeEntry();

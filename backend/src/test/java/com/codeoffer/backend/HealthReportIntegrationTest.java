@@ -10,6 +10,9 @@ import com.codeoffer.backend.project.GenTaskRepository;
 import com.codeoffer.backend.project.Project;
 import com.codeoffer.backend.project.ProjectRepository;
 import com.codeoffer.backend.project.ProjectStatus;
+import com.codeoffer.backend.settings.CryptoService;
+import com.codeoffer.backend.settings.LlmProfileRepository;
+import com.codeoffer.backend.settings.SettingsService;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,19 +41,17 @@ class HealthReportIntegrationTest {
     @Autowired private GenerateService generate;
     @Autowired private AppUserRepository users;
     @Autowired private PasswordEncoder encoder;
+    @Autowired private LlmProfileRepository profiles;
+    @Autowired private SettingsService settings;
+    @Autowired private CryptoService crypto;
     @MockitoBean private AiServiceClient ai;
 
     private Long testUserId;
 
     @BeforeEach
     void seedTestUser() {
-        AppUser u = users.findByUsername("testuser").orElseGet(() -> {
-            AppUser n = new AppUser();
-            n.setUsername("testuser");
-            n.setPasswordHash(encoder.encode("pass12345"));
-            return users.save(n);
-        });
-        testUserId = u.getId();
+        testUserId = TestSupport.seedWithProfile(users, encoder, profiles, settings, crypto,
+                "testuser", "https://test-llm.test/v1", "test-key", "test-model");
     }
 
     private void stubAi() {
@@ -58,12 +59,12 @@ class HealthReportIntegrationTest {
         when(ai.analyze(anyString())).thenReturn(
                 Map.of("name", "fake", "languages", List.of(), "core_files", List.of(),
                         "stats", Map.of("file_count", 1), "tree", List.of()));
-        when(ai.knowledgeCards(any(), anyList())).thenReturn(Map.of("cards", List.of(
+        when(ai.knowledgeCards(any(), anyList(), any())).thenReturn(Map.of("cards", List.of(
                 Map.of("type", "architecture", "title", "架构", "content", "内容1"))));
-        when(ai.flowDiagram(any())).thenReturn(Map.of("title", "flow", "description", "d", "mermaid", "graph LR"));
-        when(ai.resume(any())).thenReturn(
+        when(ai.flowDiagram(any(), any())).thenReturn(Map.of("title", "flow", "description", "d", "mermaid", "graph LR"));
+        when(ai.resume(any(), any())).thenReturn(
                 Map.of("star", Map.of("situation", "s", "task", "t", "action", "a", "result", "r", "summary", "s")));
-        when(ai.interviewQuestions(any())).thenReturn(
+        when(ai.interviewQuestions(any(), any())).thenReturn(
                 Map.of("questions", List.of(Map.of("level", "base", "question", "q", "answer", "a"))));
     }
 
@@ -76,7 +77,7 @@ class HealthReportIntegrationTest {
         GenTask task = new GenTask();
         task.setProjectId(p.getId());
         task = tasks.save(task);
-        generate.runFullGeneration(p.getId(), task.getId());
+        generate.runFullGeneration(p.getId(), task.getId(), testUserId);
         for (int i = 0; i < 100; i++) {
             GenTask t = tasks.findFirstByProjectIdOrderByIdDesc(p.getId()).orElseThrow();
             if (t.getStatus() == TaskStatus.DONE || t.getStatus() == TaskStatus.FAILED) {
@@ -90,7 +91,7 @@ class HealthReportIntegrationTest {
     @Test
     void healthReport_storedAsMarkdown() throws Exception {
         stubAi();
-        when(ai.healthReport(anyString(), any())).thenReturn(Map.of(
+        when(ai.healthReport(anyString(), any(), any())).thenReturn(Map.of(
                 "verdict", "值得学", "score", 8,
                 "reasons", List.of("文档齐全"), "learning_path", List.of("读 README"), "risk", "依赖较旧"));
 
@@ -105,7 +106,7 @@ class HealthReportIntegrationTest {
     @Test
     void healthReportFailure_doesNotBlockGeneration() throws Exception {
         stubAi();
-        when(ai.healthReport(anyString(), any()))
+        when(ai.healthReport(anyString(), any(), any()))
                 .thenThrow(new IllegalStateException("AI 服务调用失败(HTTP 502)"));
 
         long projectId = runGeneration();

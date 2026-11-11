@@ -110,28 +110,37 @@ public class AiServiceClient {
     }
 
     @SuppressWarnings("unchecked")
-    public Map<String, Object> knowledgeCards(Map<String, Object> repoInfo, List<String> types) {
-        return post("/api/ai/knowledge-cards", Map.of("repo_info", repoInfo, "types", types));
+    public Map<String, Object> knowledgeCards(Map<String, Object> repoInfo, List<String> types, LlmRuntime rt) {
+        return post("/api/ai/knowledge-cards", withLlm(Map.of("repo_info", repoInfo, "types", types), rt));
     }
 
     @SuppressWarnings("unchecked")
-    public Map<String, Object> flowDiagram(Map<String, Object> repoInfo) {
-        return post("/api/ai/flow-diagram", Map.of("repo_info", repoInfo));
+    public Map<String, Object> flowDiagram(Map<String, Object> repoInfo, LlmRuntime rt) {
+        return post("/api/ai/flow-diagram", withLlm(Map.of("repo_info", repoInfo), rt));
     }
 
     @SuppressWarnings("unchecked")
-    public Map<String, Object> resume(Map<String, Object> repoInfo) {
-        return post("/api/ai/resume", Map.of("repo_info", repoInfo));
+    public Map<String, Object> resume(Map<String, Object> repoInfo, LlmRuntime rt) {
+        return post("/api/ai/resume", withLlm(Map.of("repo_info", repoInfo), rt));
     }
 
     @SuppressWarnings("unchecked")
-    public Map<String, Object> interviewQuestions(Map<String, Object> repoInfo) {
-        return post("/api/ai/interview-questions", Map.of("repo_info", repoInfo));
+    public Map<String, Object> interviewQuestions(Map<String, Object> repoInfo, LlmRuntime rt) {
+        return post("/api/ai/interview-questions", withLlm(Map.of("repo_info", repoInfo), rt));
     }
 
     @SuppressWarnings("unchecked")
-    public Map<String, Object> healthReport(String repoUrl, Map<String, Object> meta) {
-        return post("/api/ai/health-report", Map.of("repo_url", repoUrl, "meta", meta == null ? Map.of() : meta));
+    public Map<String, Object> healthReport(String repoUrl, Map<String, Object> meta, LlmRuntime rt) {
+        return post("/api/ai/health-report",
+                withLlm(Map.of("repo_url", repoUrl, "meta", meta == null ? Map.of() : meta), rt));
+    }
+
+    /** 请求体合并用户 LLM 配置与生成偏好(BYOK 运行时注入)。 */
+    private static Map<String, Object> withLlm(Map<String, Object> base, LlmRuntime rt) {
+        Map<String, Object> body = new java.util.HashMap<>(base);
+        body.put("llm", llmMap(rt));
+        body.put("prefs", Map.of("language", rt.language(), "verbosity", rt.verbosity()));
+        return body;
     }
 
     /** 连接测试:AI 服务单次最小调用;snake_case 转 camelCase 返回。 */

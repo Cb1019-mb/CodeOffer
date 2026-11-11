@@ -2,6 +2,10 @@ package com.codeoffer.backend;
 
 import com.codeoffer.backend.auth.AppUser;
 import com.codeoffer.backend.auth.AppUserRepository;
+import com.codeoffer.backend.ai.AiServiceClient;
+import com.codeoffer.backend.settings.CryptoService;
+import com.codeoffer.backend.settings.LlmProfileRepository;
+import com.codeoffer.backend.settings.SettingsService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,6 +14,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -28,16 +33,16 @@ class DataIsolationTest {
     @Autowired private MockMvc mvc;
     @Autowired private AppUserRepository users;
     @Autowired private PasswordEncoder encoder;
+    @Autowired private LlmProfileRepository profiles;
+    @Autowired private SettingsService settings;
+    @Autowired private CryptoService crypto;
+    @MockitoBean private AiServiceClient ai;
 
     @BeforeEach
     void seed() {
         for (String name : new String[]{"iso_a", "iso_b"}) {
-            if (users.findByUsername(name).isEmpty()) {
-                AppUser u = new AppUser();
-                u.setUsername(name);
-                u.setPasswordHash(encoder.encode("pass12345"));
-                users.save(u);
-            }
+            TestSupport.seedWithProfile(users, encoder, profiles, settings, crypto,
+                    name, "https://test-llm.test/v1", "test-key", "test-model");
         }
     }
 
