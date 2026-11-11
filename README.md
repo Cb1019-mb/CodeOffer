@@ -123,7 +123,7 @@ MYSQL_PASSWORD=your-password
 ```
 
 > ⚠️ `config/.env` **不入库**（见 `.gitignore`）。若在代理/自签名证书环境遇到 SSL 报错，可追加 `LLM_VERIFY_SSL=false`。
-> MySQL 初始化执行 `scripts/setup-mysql.sql`：创建 `codeoffer` 库与 `codeoffer_app` 账号（只建库建账号，不建表；表由后端 `ddl-auto: update` 自动生成）。`docs/database/schema.sql` 仅是建表语句参考，以 `DROP TABLE IF EXISTS` 开头、重跑会清空数据，不要当作初始化脚本执行。存量 SQLite 数据迁移用 `scripts/migrate_sqlite_to_mysql.py`。
+> MySQL 初始化执行 `scripts/setup-mysql.sql`：创建 `codeoffer` 库与 `codeoffer_app` 账号（只建库建账号，不建表；表由后端 `ddl-auto: update` 自动生成）。`docs/database/schema.sql` 仅是建表语句参考，以 `DROP TABLE IF EXISTS` 开头、重跑会清空数据，不要当作初始化脚本执行。存量 SQLite 数据迁移用 `scripts/migrate_sqlite_to_mysql.py`。该脚本会先清空目标四表再写入快照，目标表非空时须加 `--force` 才会执行，效果是回退到 SQLite 快照并丢弃迁移后新增的数据。
 
 ### 3.3 一键启动（推荐，Windows）
 

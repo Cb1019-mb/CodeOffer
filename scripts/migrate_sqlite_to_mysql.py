@@ -4,10 +4,13 @@
 用法:
   scripts/.venv/Scripts/python scripts/migrate_sqlite_to_mysql.py --dry-run
   scripts/.venv/Scripts/python scripts/migrate_sqlite_to_mysql.py --schema-out docs/database/schema.sql
+  scripts/.venv/Scripts/python scripts/migrate_sqlite_to_mysql.py --force
 
 约定:
   - 源库 data/codeoffer.db 只读打开,不做任何修改(回滚依据)
   - 目标四表须已由后端首次启动(ddl-auto=update)创建,缺表即失败退出
+  - 目标四表任一非空时默认拒绝执行(避免误覆盖线上数据),确认要以 SQLite 快照
+    覆盖现有数据时显式加 --force;--dry-run 不写入,不受此限制
   - 单事务: 清空 -> 写入 -> 对账,任一步失败整体回滚
   - 时间戳: SQLite 存 epoch 毫秒(Hibernate SQLiteDialect),MySQL 存 UTC DATETIME
     (application.yml 已设 hibernate.jdbc.time_zone=UTC)
@@ -66,6 +69,7 @@ def dump_schema(conn, path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--force", action="store_true", help="目标表已有数据时仍以 SQLite 快照覆盖")
     parser.add_argument("--schema-out", default=None)
     args = parser.parse_args()
 
@@ -92,6 +96,19 @@ def main():
                 if cur.fetchone()[0] == 0:
                     print(f"[FAIL] 目标表 {table} 不存在: 请先启动一次后端以自动建表")
                     sys.exit(1)
+
+        # 破坏性写前置守卫: 目标表非空时默认拒绝,须显式 --force 才覆盖
+        # (干跑不写入,保持原有校验行为,不受此守卫影响)
+        if not args.dry_run and not args.force:
+            with conn.cursor() as cur:
+                for table in TABLES:
+                    cur.execute(f"SELECT COUNT(*) FROM `{table}`")
+                    if cur.fetchone()[0] > 0:
+                        print(
+                            f"[FAIL] 目标表 {table} 已有数据，如需覆盖请加 --force"
+                            "（将以 SQLite 快照覆盖现有数据）"
+                        )
+                        sys.exit(1)
 
         for table in TABLES:
             with conn.cursor() as cur:
