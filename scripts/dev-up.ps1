@@ -5,6 +5,18 @@ $ws = Split-Path -Parent $PSScriptRoot
 $logs = Join-Path $ws "data\logs"
 New-Item -ItemType Directory -Path $logs -Force | Out-Null
 
+# 0) 确认本机 MySQL 服务可用(应用默认连接 127.0.0.1:3306)
+$mysqlSvc = Get-Service -Name "MySQL" -ErrorAction SilentlyContinue
+if (-not $mysqlSvc) {
+    Write-Host "[FAIL] 未检测到 MySQL Windows 服务(服务名应为 MySQL),请先安装/启动 MySQL 8" -ForegroundColor Red
+    exit 1
+}
+if ($mysqlSvc.Status -ne "Running") {
+    Write-Host "[0/4] 启动 MySQL 服务..." -ForegroundColor Cyan
+    Start-Service -Name "MySQL"
+    $mysqlSvc.WaitForStatus("Running", [TimeSpan]::FromSeconds(20))
+}
+
 # 0) 清理旧服务进程:端口被占用时新进程会启动失败,导致"改了配置/代码但重启不生效"
 #    仅杀 java/python 进程树,避免误杀无关程序;uvicorn 子进程按命令行特征兜底清理
 foreach ($port in 8001, 8080) {
@@ -31,17 +43,17 @@ if ($stuck) {
 
 # 1) 准备 Python 虚拟环境
 if (-not (Test-Path (Join-Path $ws "ai-service\.venv"))) {
-    Write-Host "[1/3] 创建 Python 虚拟环境..." -ForegroundColor Cyan
+    Write-Host "[1/4] 创建 Python 虚拟环境..." -ForegroundColor Cyan
     python -m venv (Join-Path $ws "ai-service\.venv")
     & (Join-Path $ws "ai-service\.venv\Scripts\pip") install -r (Join-Path $ws "ai-service\requirements.txt")
 } else {
-    Write-Host "[1/3] Python 虚拟环境已就绪" -ForegroundColor DarkGray
+    Write-Host "[1/4] Python 虚拟环境已就绪" -ForegroundColor DarkGray
 }
 
 # 2) 启动 AI 服务(8001)
 #    经 run.py 以 SO_REUSEADDR 绑定,规避 Windows 僵尸 socket(强杀旧进程后端口 10048)。
 #    注:外部 socket 模式不支持 --reload,热更新需在无僵尸端口时手动 uvicorn --reload。
-Write-Host "[2/3] 启动 AI 服务 http://127.0.0.1:8001 ..." -ForegroundColor Cyan
+Write-Host "[2/4] 启动 AI 服务 http://127.0.0.1:8001 ..." -ForegroundColor Cyan
 Start-Process -FilePath (Join-Path $ws "ai-service\.venv\Scripts\python.exe") `
     -ArgumentList "run.py", "--port", "8001" `
     -WorkingDirectory (Join-Path $ws "ai-service") -WindowStyle Hidden `
@@ -49,7 +61,7 @@ Start-Process -FilePath (Join-Path $ws "ai-service\.venv\Scripts\python.exe") `
     -RedirectStandardError (Join-Path $logs "ai-service.err.log")
 
 # 3) 启动 Java 后端(8080)
-Write-Host "[3/3] 启动后端 http://127.0.0.1:8080 ..." -ForegroundColor Cyan
+Write-Host "[3/4] 启动后端 http://127.0.0.1:8080 ..." -ForegroundColor Cyan
 Start-Process -FilePath "cmd.exe" `
     -ArgumentList "/c", "mvnw.cmd spring-boot:run" `
     -WorkingDirectory (Join-Path $ws "backend") -WindowStyle Hidden `

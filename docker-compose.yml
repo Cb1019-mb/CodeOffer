@@ -1,4 +1,25 @@
 services:
+  mysql:
+    image: mysql:8.4
+    container_name: codeoffer-mysql
+    env_file:
+      # 提供 MYSQL_USER / MYSQL_PASSWORD / MYSQL_ROOT_PASSWORD
+      - path: ./config/.env
+        required: false
+    environment:
+      - MYSQL_DATABASE=${MYSQL_DB:-codeoffer}
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
   ai-service:
     build: ./ai-service
     container_name: codeoffer-ai
@@ -25,12 +46,21 @@ services:
     container_name: codeoffer-backend
     ports:
       - "${BACKEND_PORT:-8080}:8080"
+    env_file:
+      - path: ./config/.env
+        required: false
     depends_on:
       ai-service:
         condition: service_healthy
+      mysql:
+        condition: service_healthy
     environment:
       - AI_SERVICE_URL=http://ai-service:8001
-      - DATA_DIR=/data
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
     volumes:
       - ./data:/data
     restart: unless-stopped
+
+volumes:
+  mysql-data:

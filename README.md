@@ -60,7 +60,7 @@
 | 层次 | 技术 | 说明 |
 | --- | --- | --- |
 | **后端** | Java 21 · Spring Boot 4.1 | 业务 API、状态机、异步生成编排 |
-| | Spring Data JPA · SQLite (Xerial JDBC) | 数据持久化（测试用 H2） |
+| | Spring Data JPA · MySQL 8.4（mysql-connector-j；测试用 H2） | 数据持久化 |
 | | Spring Actuator · Validation | 健康检查与参数校验 |
 | **AI 服务** | Python 3.13 · FastAPI · Uvicorn | 仓库抓取/解析 + LLM 调用 |
 | | GitPython · httpx · pydantic | 仓库操作 / HTTP 客户端 / 数据模型 |
@@ -85,6 +85,7 @@
 | Node.js | 20+（推荐 22 LTS） |
 | Python | 3.11+（本项目开发环境为 3.13） |
 | Git | 2.30+（本地 file 仓库场景） |
+| MySQL | 8.0+（本机服务名 MySQL，默认端口 3306） |
 | Docker（可选） | 容器化部署时需要 |
 
 ### 3.2 克隆与配置
@@ -112,13 +113,21 @@ LLM_MODEL=deepseek-chat
 # 端口
 BACKEND_PORT=8080
 AI_SERVICE_PORT=8001
+
+# MySQL(后端持久层;库与账号需预先创建,见 docs/database/schema.sql)
+MYSQL_HOST=127.0.0.1
+MYSQL_PORT=3306
+MYSQL_DB=codeoffer
+MYSQL_USER=codeoffer_app
+MYSQL_PASSWORD=your-password
 ```
 
 > ⚠️ `config/.env` **不入库**（见 `.gitignore`）。若在代理/自签名证书环境遇到 SSL 报错，可追加 `LLM_VERIFY_SSL=false`。
+> MySQL 的库表初始化可执行 `scripts/setup-mysql.sql`（建库建账号）；存量 SQLite 数据迁移用 `scripts/migrate_sqlite_to_mysql.py`。
 
 ### 3.3 一键启动（推荐，Windows）
 
-仓库提供了开发环境一键启动脚本，会自动创建 Python 虚拟环境并拉起两个服务：
+仓库提供了开发环境一键启动脚本，会先确认本机 MySQL 服务已运行（未运行则自动 `Start-Service`），再创建 Python 虚拟环境并拉起两个服务：
 
 ```powershell
 .\scripts\dev-up.ps1
@@ -129,6 +138,8 @@ AI_SERVICE_PORT=8001
 - 后端健康检查：<http://127.0.0.1:8080/api/health>
 - AI 服务健康检查：<http://127.0.0.1:8001/api/health>
 - 前端开发服务器（可选，需单独启动）：见下
+
+手动分步启动时，请自行确保 `MySQL` 服务已启动（`net start MySQL`）。
 
 ### 3.4 手动分步启动
 
@@ -169,7 +180,19 @@ npm run dev
 docker compose up -d
 ```
 
-Compose 会依次构建并启动 `ai-service`（8001）与 `backend`（8080），后端等待 AI 服务健康后才启动，数据卷挂载到 `./data`。
+Compose 会依次构建并启动 `mysql`（3306）、`ai-service`（8001）与 `backend`（8080）：
+
+- `mysql` 使用 `mysql:8.4` 镜像，数据持久化到命名卷 `mysql-data`，库名取 `MYSQL_DB`（默认 `codeoffer`）；
+- `backend` 等待 `ai-service` 与 `mysql` 均通过健康检查后才启动，容器内通过 `MYSQL_HOST=mysql` 连接数据库；
+- 宿主机的 `./data` 挂载为 `/data`。MySQL 账号密码仍从 `config/.env` 注入（缺失时按 `.env.example` 补齐）。
+
+> 若本机已有 MySQL 服务占用 3306，可先改 `MYSQL_PORT` 或只启动 `docker compose up -d ai-service backend`。
+
+### 3.6 常见问题
+
+| 现象 | 处理 |
+| --- | --- |
+| 端口 3306 被占用 / MySQL 服务未启动 | `net start MySQL`（服务名 `MySQL`）；被别处占用时改 `MYSQL_PORT` 或停掉占用进程 |
 
 ---
 
@@ -330,16 +353,20 @@ CodeOffer/
 │   │   ├── App.tsx / main.tsx
 │   └── package.json
 │
-├── scripts/                      # 开发/构建/E2E 脚本 (PowerShell)
+├── scripts/                      # 开发/构建/E2E/运维脚本 (PowerShell · Python · SQL)
 │   ├── dev-up.ps1
 │   ├── build-frontend.ps1
-│   └── e2e.ps1
+│   ├── e2e.ps1
+│   ├── migrate_sqlite_to_mysql.py # 存量 SQLite 数据迁移到 MySQL
+│   └── setup-mysql.sql           # 建库/建账号初始化脚本
 │
 ├── config/
 │   ├── .env.example              # 环境变量模板
 │   └── .env                      # 本地配置（不入库）
-├── data/                         # 运行时数据（DB / 克隆仓库 / 日志，不入库）
-├── docs/superpowers/             # 设计与实现文档
+├── data/                         # 运行时数据（克隆仓库 / 日志，不入库）
+├── docs/
+│   ├── database/schema.sql       # 建表语句（由真实库导出）
+│   └── superpowers/              # 设计与实现文档
 ├── docker-compose.yml
 └── LICENSE
 ```
