@@ -116,7 +116,7 @@ public class GenerateService {
             saveProject(project);
 
             // 2) 解析
-            transition(project, task, ProjectStatus.ANALYZING, 25);
+            transition(project, task, ProjectStatus.ANALYZING, 20);
             Map<String, Object> repoInfo = ai.analyze(repoDir);
             project.setRepoInfo(mapper.writeValueAsString(repoInfo));
             // 描述与技术栈(解析自 README 与依赖清单,按主次排列)写入项目信息
@@ -131,6 +131,17 @@ public class GenerateService {
                 project.setTechStack(stack.isEmpty() ? null : String.join(", ", stack));
             }
             saveProject(project);
+
+            // 2.5) 体检报告(增值产物,失败不阻断主流程)
+            try {
+                Map<String, Object> healthResp = ai.healthReport(project.getRepoUrl(), repoInfo);
+                project.setHealthReport(buildHealthContent(healthResp));
+                saveProject(project);
+            } catch (Exception e) {
+                log.warn("项目 {} 体检报告生成失败(不阻断主流程): {}", projectId, e.getMessage());
+            }
+            task.setProgress(35);
+            saveTask(task);
 
             // 3) 生成
             transition(project, task, ProjectStatus.GENERATING, 50);
@@ -296,5 +307,37 @@ public class GenerateService {
         String description = (String) resp.getOrDefault("description", "");
         String mermaid = (String) resp.getOrDefault("mermaid", "");
         return "# " + title + "\n\n" + description + "\n\n```mermaid\n" + mermaid + "\n```";
+    }
+
+    /** 体检报告 JSON → Markdown;resp 为 null 时返回 null,字段缺失按空串降级。 */
+    static String buildHealthContent(Map<String, Object> resp) {
+        if (resp == null) {
+            return null;
+        }
+        String verdict = str(resp.get("verdict"));
+        String score = str(resp.get("score"));
+        StringBuilder sb = new StringBuilder("# 项目体检报告\n\n");
+        sb.append("**结论**：").append(verdict.isEmpty() ? "未知" : verdict);
+        if (!score.isEmpty()) {
+            sb.append("（评分 ").append(score).append("/10）");
+        }
+        sb.append("\n\n## 评估理由\n");
+        appendItems(sb, resp.get("reasons"), "- ");
+        sb.append("\n## 学习路线\n");
+        appendItems(sb, resp.get("learning_path"), "1. ");
+        sb.append("\n## 潜在风险\n").append(str(resp.get("risk")));
+        return sb.toString();
+    }
+
+    private static String str(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    private static void appendItems(StringBuilder sb, Object raw, String prefix) {
+        if (raw instanceof List<?> list) {
+            for (Object item : list) {
+                sb.append(prefix).append(str(item)).append('\n');
+            }
+        }
     }
 }
