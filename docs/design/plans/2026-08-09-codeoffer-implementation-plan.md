@@ -1,7 +1,7 @@
 # CodeOffer 实现计划(MVP)
 
 > 日期:2026-08-09
-> 依据设计文档:`docs/superpowers/specs/2026-08-09-codeoffer-design.md`(v2,已批准)
+> 依据设计文档:`docs/design/specs/2026-08-09-codeoffer-design.md`(v2,已批准)
 > 注:本环境无 writing-plans 技能,此文档为手动编写的等价实现计划。
 
 ## 1. 目标与范围

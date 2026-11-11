@@ -129,7 +129,7 @@ MYSQL_ROOT_PASSWORD=your-root-password
 
 ### 3.3 一键启动（推荐，Windows）
 
-仓库提供了开发环境一键启动脚本，会先确认本机 MySQL 服务已运行（未运行则自动 `Start-Service`），再创建 Python 虚拟环境并拉起两个服务：
+仓库提供了开发环境一键启动脚本，会先确认本机 MySQL 服务已运行（未运行则自动 `Start-Service`），清理占用端口的旧服务进程，再创建 Python 虚拟环境并拉起 AI 服务、后端与前端三个服务，轮询健康检查全部就绪后打印访问地址。日志统一写入 `data/logs/`（`ai-service` / `backend` / `frontend`）。重复执行即可清旧起新，改了代码后重跑脚本即可生效。
 
 ```powershell
 .\scripts\dev-up.ps1
@@ -137,9 +137,9 @@ MYSQL_ROOT_PASSWORD=your-root-password
 
 启动后访问：
 
+- 前端（测试入口）：<http://localhost:5173>
 - 后端健康检查：<http://127.0.0.1:8080/api/health>
 - AI 服务健康检查：<http://127.0.0.1:8001/api/health>
-- 前端开发服务器（可选，需单独启动）：见下
 
 手动分步启动时，请自行确保 `MySQL` 服务已启动（`net start MySQL`）。
 
@@ -179,6 +179,8 @@ npm run dev
 ```
 
 ### 3.5 Docker Compose（可选）
+
+> 前端构建产物不入库（`backend/src/main/resources/static/` 已被 gitignore）。新克隆的仓库须先执行 `.\scripts\build-frontend.ps1` 生成产物，再 `docker compose up -d`，否则后端镜像不含前端页面。
 
 ```bash
 docker compose up -d
@@ -383,7 +385,7 @@ CodeOffer/
 ├── data/                         # 运行时数据（克隆仓库 / 日志，不入库）
 ├── docs/
 │   ├── database/schema.sql       # 建表语句（由真实库导出）
-│   └── superpowers/              # 设计与实现文档
+│   └── design/                   # 设计与实现文档（plans / specs）
 ├── docker-compose.yml
 └── LICENSE
 ```

@@ -1,7 +1,7 @@
 """CodeOffer AI 服务入口。
 
 职责边界:本服务只负责「仓库 + 大模型」相关能力,不触碰业务数据库;
-Java 后端通过 HTTP 调用本服务,契约见 docs/superpowers/plans/2026-08-09-codeoffer-implementation-plan.md §3。
+Java 后端通过 HTTP 调用本服务,契约见 docs/design/plans/2026-08-09-codeoffer-implementation-plan.md §3。
 """
 from __future__ import annotations
 

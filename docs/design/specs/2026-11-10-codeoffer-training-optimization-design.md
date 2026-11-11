@@ -118,7 +118,7 @@ FLUSH PRIVILEGES;
 
 - `scripts/migrate_sqlite_to_mysql.py`
 - `docs/database/schema.sql`
-- 本规格 `docs/superpowers/specs/2026-11-10-codeoffer-training-optimization-design.md`
+- 本规格 `docs/design/specs/2026-11-10-codeoffer-training-optimization-design.md`
 - 更新后的 `README.md`、`docker-compose.yml`、`config/.env.example`、`scripts/dev-up.ps1`
 
 **仓库外（课程材料，含个人信息，避免进入公开仓库）**

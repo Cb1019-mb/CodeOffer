@@ -1,2 +1,0 @@
-[permissions]
-allow = ["Bash=Get-ChildItem 'D:\\Internship Program\\Project summarization-Platform' -Force -File | Select-Object Name, Length, Attributes | Format-Table -AutoSize; Write-Output \"--- recursive count ---\"; (Get-ChildItem 'D:\\Internship Program\\Project summarization-Platform' -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object).Count", "Bash=Get-Date -Format \"yyyy-MM-dd\"; git rev-parse --is-inside-work-tree 2>$null; if (-not $?) { \"NOT_A_GIT_REPO\" }"]

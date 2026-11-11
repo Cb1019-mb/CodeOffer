@@ -8,7 +8,7 @@
 
 **Tech Stack:** Java 21 · Spring Boot 4.1 · Spring Data JPA · MySQL 8.4 · H2（测试）· React 19 · FastAPI · Python 3.13 · Word/PPT 文档工具
 
-**Spec:** `docs/superpowers/specs/2026-11-10-codeoffer-training-optimization-design.md`
+**Spec:** `docs/design/specs/2026-11-10-codeoffer-training-optimization-design.md`
 
 ## Global Constraints
 
