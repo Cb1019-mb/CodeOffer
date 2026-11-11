@@ -53,7 +53,10 @@ def _client(
 ) -> httpx.Client:
     if transport is not None:
         return httpx.Client(timeout=timeout, transport=transport, verify=verify)
-    return httpx.Client(timeout=timeout, verify=verify)
+    # 不读系统代理环境变量:NO_PROXY 的畸形条目(如 IPv6 字面量 [::1])会触发
+    # httpx InvalidURL,使所有 LLM 调用在客户端构造期崩溃。需要代理时显式配置 LLM_PROXY。
+    proxy = os.environ.get("LLM_PROXY") or None
+    return httpx.Client(timeout=timeout, verify=verify, trust_env=False, proxy=proxy)
 
 
 def _post(
