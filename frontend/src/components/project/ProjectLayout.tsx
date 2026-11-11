@@ -39,6 +39,10 @@ export default function ProjectLayout() {
   }, [projectId])
 
   useEffect(() => {
+    // 切换项目时清空旧数据,避免短暂展示上一个项目的内容
+    setDetail(null)
+    setTask(null)
+    setError(null)
     if (!Number.isFinite(projectId)) {
       setError('无效的项目 ID')
       return
