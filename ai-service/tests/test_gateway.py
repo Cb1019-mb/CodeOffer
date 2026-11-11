@@ -73,7 +73,8 @@ def test_chat_json_raises_after_two_bad_outputs():
         chat_json([], transport=_transport(handler), cfg=_cfg())
 
 
-def test_retry_on_429_then_success():
+def test_retry_on_429_then_success(monkeypatch):
+    monkeypatch.setattr("llm.gateway.time.sleep", lambda s: None)
     calls = {"n": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:

@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
 from typing import Any
 
@@ -71,6 +72,7 @@ def _post(
     单次 60s、最多 3 次尝试(2 次重试)≈ 185s,与 Java 端 220s 读超时对齐;
     注意:JSON 修复重试路径会再发起一次调用,最坏约 370s,超出部分由 Java 端 220s 有界截断。"""
     url = f"{cfg.base_url}/chat/completions"
+    _pace()
     payload = {
         "model": cfg.model,
         "messages": messages,
@@ -81,6 +83,7 @@ def _post(
     headers = {"Authorization": f"Bearer {cfg.api_key}", "Content-Type": "application/json"}
 
     last_err: Exception | None = None
+    next_sleep: float | None = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             with _client(timeout, transport, verify=cfg.verify_ssl) as client:
@@ -96,6 +99,8 @@ def _post(
                 ) from e
             if status == 429 or 500 <= status < 600:
                 last_err = e  # 限流/服务端错误:可重试
+                if status == 429:
+                    next_sleep = _retry_after_seconds(e.response.headers.get("Retry-After"))
             else:
                 # 其它 4xx(400/404/422 等)是客户端错误,重试无意义
                 raise LLMError(f"LLM 调用被拒绝(HTTP {status}):请检查 LLM_BASE_URL 与请求内容") from e
@@ -105,13 +110,45 @@ def _post(
             raise LLMError(f"LLM 响应结构异常: {e}") from e
 
         if attempt < MAX_RETRIES:
-            sleep = BACKOFF_BASE_SECONDS**attempt
+            sleep = next_sleep if next_sleep is not None else BACKOFF_BASE_SECONDS**attempt
+            next_sleep = None
             logger.warning("LLM 调用失败(第 %d/%d 次):%s,%.1fs 后重试", attempt, MAX_RETRIES, last_err, sleep)
             time.sleep(sleep)
 
     raise LLMError(
         f"LLM 调用失败(已重试 {MAX_RETRIES} 次): {last_err}{_certificate_hint(last_err)}"
     ) from last_err
+
+
+def _retry_after_seconds(value: str | None) -> float:
+    """429 退避间隔:优先 Retry-After(秒),缺省保守 30s;上限 45s 以守住 Java 端 220s 读超时预算。"""
+    try:
+        seconds = float(value) if value else 30.0
+    except ValueError:
+        seconds = 30.0
+    return max(1.0, min(seconds, 45.0))
+
+
+_pace_lock = threading.Lock()
+_last_call_ts: float | None = None
+
+
+def _pace() -> None:
+    """低 RPM/TPM 配额提供商的调用间隔 pacing(LLM_MIN_INTERVAL_SECONDS,默认 0 关闭)。"""
+    global _last_call_ts
+    try:
+        interval = float(os.environ.get("LLM_MIN_INTERVAL_SECONDS", "0") or 0)
+    except ValueError:
+        interval = 0.0
+    if interval <= 0:
+        return
+    with _pace_lock:
+        now = time.monotonic()
+        if _last_call_ts is not None:
+            wait = interval - (now - _last_call_ts)
+            if wait > 0:
+                time.sleep(wait)
+        _last_call_ts = time.monotonic()
 
 
 def _content_text(data: dict[str, Any]) -> str:
