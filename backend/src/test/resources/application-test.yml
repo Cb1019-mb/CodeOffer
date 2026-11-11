@@ -13,3 +13,7 @@ spring:
 
 ai-service:
   url: http://127.0.0.1:8001
+
+auth:
+  rate-limit:
+    per-minute: 10000
