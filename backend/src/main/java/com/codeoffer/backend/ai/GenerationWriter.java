@@ -39,7 +39,7 @@ public class GenerationWriter {
      * 已编辑(edited)的卡片保留定稿,仅更新 AI 草稿,兑现「已编辑不覆盖」承诺。
      */
     @Transactional
-    public void replaceCards(Long projectId, List<Map<String, Object>> items) {
+    public void replaceCards(Long projectId, Long userId, List<Map<String, Object>> items) {
         List<KnowledgeCard> existing = cards.findByProjectIdOrderByIdAsc(projectId);
         existing.stream().filter(c -> !c.isEdited()).forEach(cards::delete);
         if (items == null) {
@@ -82,6 +82,7 @@ public class GenerationWriter {
             }
             KnowledgeCard card = new KnowledgeCard();
             card.setProjectId(projectId);
+            card.setUserId(userId);
             card.setType(toCardType(typeName));
             card.setTitle((String) item.get("title"));
             String content = (String) item.get("content");
@@ -93,7 +94,7 @@ public class GenerationWriter {
 
     /** 保存或更新流程图卡片(编辑过的保留定稿)。 */
     @Transactional
-    public void saveFlowCard(Long projectId, String title, String content) {
+    public void saveFlowCard(Long projectId, Long userId, String title, String content) {
         cards.findByProjectIdAndType(projectId, CardType.FLOW_DIAGRAM).ifPresentOrElse(
                 card -> {
                     card.setAiDraft(content);
@@ -105,6 +106,7 @@ public class GenerationWriter {
                 () -> {
                     KnowledgeCard card = new KnowledgeCard();
                     card.setProjectId(projectId);
+                    card.setUserId(userId);
                     card.setType(CardType.FLOW_DIAGRAM);
                     card.setTitle(title);
                     card.setAiDraft(content);
@@ -116,7 +118,7 @@ public class GenerationWriter {
     /** 保存或更新简历条目(编辑过的字段保留定稿)。 */
     @Transactional
     public void saveResumeEntry(
-            Long projectId, String aiDraft, String starJson, String qasJson) {
+            Long projectId, Long userId, String aiDraft, String starJson, String qasJson) {
         resumes.findByProjectId(projectId).ifPresentOrElse(
                 entry -> {
                     entry.setAiDraft(aiDraft);
@@ -129,6 +131,7 @@ public class GenerationWriter {
                 () -> {
                     ResumeEntry entry = new ResumeEntry();
                     entry.setProjectId(projectId);
+                    entry.setUserId(userId);
                     entry.setAiDraft(aiDraft);
                     entry.setStarContent(starJson);
                     entry.setInterviewQas(qasJson);

@@ -2,6 +2,8 @@ package com.codeoffer.backend;
 
 import com.codeoffer.backend.ai.AiServiceClient;
 import com.codeoffer.backend.ai.GenerateService;
+import com.codeoffer.backend.auth.AppUser;
+import com.codeoffer.backend.auth.AppUserRepository;
 import com.codeoffer.backend.project.GenTask;
 import com.codeoffer.backend.project.GenTask.TaskStatus;
 import com.codeoffer.backend.project.GenTaskRepository;
@@ -10,9 +12,11 @@ import com.codeoffer.backend.project.ProjectRepository;
 import com.codeoffer.backend.project.ProjectStatus;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -32,7 +36,22 @@ class HealthReportIntegrationTest {
     @Autowired private ProjectRepository projects;
     @Autowired private GenTaskRepository tasks;
     @Autowired private GenerateService generate;
+    @Autowired private AppUserRepository users;
+    @Autowired private PasswordEncoder encoder;
     @MockitoBean private AiServiceClient ai;
+
+    private Long testUserId;
+
+    @BeforeEach
+    void seedTestUser() {
+        AppUser u = users.findByUsername("testuser").orElseGet(() -> {
+            AppUser n = new AppUser();
+            n.setUsername("testuser");
+            n.setPasswordHash(encoder.encode("pass12345"));
+            return users.save(n);
+        });
+        testUserId = u.getId();
+    }
 
     private void stubAi() {
         when(ai.cloneRepo(anyString())).thenReturn("C:/fake/repo");
@@ -52,6 +71,7 @@ class HealthReportIntegrationTest {
         Project p = new Project();
         p.setRepoUrl("https://github.com/octocat/health-" + System.nanoTime());
         p.setName("health");
+        p.setUserId(testUserId);
         p = projects.save(p);
         GenTask task = new GenTask();
         task.setProjectId(p.getId());

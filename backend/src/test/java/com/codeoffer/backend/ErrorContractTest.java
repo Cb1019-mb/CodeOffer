@@ -35,20 +35,24 @@ class ErrorContractTest {
     @Autowired private PasswordEncoder encoder;
     @MockitoBean private AiServiceClient ai;
 
+    private Long testUserId;
+
     @BeforeEach
     void seedTestUser() {
-        if (users.findByUsername("testuser").isEmpty()) {
-            AppUser u = new AppUser();
-            u.setUsername("testuser");
-            u.setPasswordHash(encoder.encode("pass12345"));
-            users.save(u);
-        }
+        AppUser u = users.findByUsername("testuser").orElseGet(() -> {
+            AppUser n = new AppUser();
+            n.setUsername("testuser");
+            n.setPasswordHash(encoder.encode("pass12345"));
+            return users.save(n);
+        });
+        testUserId = u.getId();
     }
 
     @Test
     void duplicateCreate_returns409WithChineseDetail() throws Exception {
         Project p = new Project();
         p.setRepoUrl("https://github.com/octocat/error-contract-dup");
+        p.setUserId(testUserId);
         projects.save(p);
 
         mvc.perform(post("/api/projects")

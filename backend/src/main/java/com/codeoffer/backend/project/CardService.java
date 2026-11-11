@@ -10,7 +10,7 @@ import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
-/** 卡片域服务:编辑/采纳/补充输入/重生成/自评与复习队列。 */
+/** 卡片域服务:编辑/采纳/补充输入/重生成/自评与复习队列。归属经项目级校验隔离。 */
 @Service
 public class CardService {
 
@@ -31,8 +31,8 @@ public class CardService {
     }
 
     /** 编辑卡片定稿:标记 edited,重新生成不再覆盖。 */
-    public CardView editCard(Long id, Long cardId, String content) {
-        KnowledgeCard card = requireOwnedCard(id, cardId);
+    public CardView editCard(Long userId, Long id, Long cardId, String content) {
+        KnowledgeCard card = requireOwnedCard(userId, id, cardId);
         if (content == null || content.isBlank()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "内容不能为空");
         }
@@ -43,8 +43,8 @@ public class CardService {
     }
 
     /** 采纳 AI 草稿为定稿(标记为编辑过,防止下次重新生成覆盖)。 */
-    public CardView adoptDraft(Long id, Long cardId) {
-        KnowledgeCard card = requireOwnedCard(id, cardId);
+    public CardView adoptDraft(Long userId, Long id, Long cardId) {
+        KnowledgeCard card = requireOwnedCard(userId, id, cardId);
         if (card.getAiDraft() == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "暂无 AI 草稿");
         }
@@ -55,8 +55,8 @@ public class CardService {
     }
 
     /** 用户补充输入(如运行指南的踩坑记录)。 */
-    public CardView addUserInput(Long id, Long cardId, String input) {
-        KnowledgeCard card = requireOwnedCard(id, cardId);
+    public CardView addUserInput(Long userId, Long id, Long cardId, String input) {
+        KnowledgeCard card = requireOwnedCard(userId, id, cardId);
         String existing = card.getUserInput() == null ? "" : card.getUserInput();
         String merged = (existing + "\n" + (input == null ? "" : input)).trim();
         card.setUserInput(merged);
@@ -68,14 +68,14 @@ public class CardService {
     }
 
     /** 重新生成单卡:归属校验后委托生成服务(已编辑卡片只更新草稿)。 */
-    public CardView regenerateCard(Long id, Long cardId) {
-        requireOwnedCard(id, cardId);
+    public CardView regenerateCard(Long userId, Long id, Long cardId) {
+        requireOwnedCard(userId, id, cardId);
         return CardView.from(generate.regenerateCard(cardId));
     }
 
     /** 自评更新掌握度与下次复习时间:掌握 → mastery+1 且间隔递增;生疏 → mastery-2 且立即复习。 */
-    public CardView reviewCard(Long id, Long cardId, boolean known) {
-        KnowledgeCard card = requireOwnedCard(id, cardId);
+    public CardView reviewCard(Long userId, Long id, Long cardId, boolean known) {
+        KnowledgeCard card = requireOwnedCard(userId, id, cardId);
         Instant now = Instant.now();
         if (known) {
             int mastery = Math.min(5, card.getMastery() + 1);
@@ -91,8 +91,8 @@ public class CardService {
     }
 
     /** 待复习队列:mastery==0 或到期的卡片,按下次复习时间升序,最多 20 条。 */
-    public List<CardView> reviewQueue(Long id) {
-        projectService.requireProject(id);
+    public List<CardView> reviewQueue(Long userId, Long id) {
+        projectService.requireProject(userId, id);
         Instant now = Instant.now();
         return cards.findByProjectIdOrderByIdAsc(id).stream()
                 .filter(c -> c.getMastery() == 0
@@ -104,8 +104,8 @@ public class CardService {
                 .toList();
     }
 
-    private KnowledgeCard requireOwnedCard(Long id, Long cardId) {
-        projectService.requireProject(id);
+    private KnowledgeCard requireOwnedCard(Long userId, Long id, Long cardId) {
+        projectService.requireProject(userId, id);
         KnowledgeCard card = cards.findById(cardId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "卡片不存在: " + cardId));
         if (!card.getProjectId().equals(id)) {

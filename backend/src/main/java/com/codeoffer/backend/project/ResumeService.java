@@ -24,8 +24,8 @@ public class ResumeService {
         this.generate = generate;
     }
 
-    public ResumeView editStar(Long id, String starContent) {
-        projectService.requireProject(id);
+    public ResumeView editStar(Long userId, Long id, String starContent) {
+        projectService.requireProject(userId, id);
         ResumeEntry entry = resumes.findByProjectId(id)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "尚无简历产出"));
         if (starContent == null || starContent.isBlank()) {
@@ -37,8 +37,8 @@ public class ResumeService {
         return ResumeView.from(resumes.save(entry));
     }
 
-    public ResumeView regenerate(Long id) {
-        projectService.requireProject(id);
+    public ResumeView regenerate(Long userId, Long id) {
+        projectService.requireProject(userId, id);
         return ResumeView.from(generate.regenerateResume(id));
     }
 }

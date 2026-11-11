@@ -146,13 +146,14 @@ public class GenerateService {
             // 3) 生成
             transition(project, task, ProjectStatus.GENERATING, 50);
             Map<String, Object> cardsResp = ai.knowledgeCards(repoInfo, CARD_TYPES);
-            writer.replaceCards(projectId, castCards(cardsResp.get("cards")));
+            writer.replaceCards(projectId, project.getUserId(), castCards(cardsResp.get("cards")));
             task.setProgress(70);
             saveTask(task);
 
             Map<String, Object> flowResp = ai.flowDiagram(repoInfo);
             writer.saveFlowCard(
                     projectId,
+                    project.getUserId(),
                     (String) flowResp.getOrDefault("title", "核心流程图"),
                     buildFlowContent(flowResp));
             task.setProgress(80);
@@ -162,6 +163,7 @@ public class GenerateService {
             Map<String, Object> qaResp = ai.interviewQuestions(repoInfo);
             writer.saveResumeEntry(
                     projectId,
+                    project.getUserId(),
                     json(resumeResp) + "\n\n" + json(qaResp),
                     json(resumeResp.get("star")),
                     json(qaResp.get("questions")));
@@ -282,6 +284,7 @@ public class GenerateService {
         ResumeEntry entry = resumes.findByProjectId(projectId).orElseGet(() -> {
             ResumeEntry e = new ResumeEntry();
             e.setProjectId(projectId);
+            e.setUserId(project.getUserId());
             return e;
         });
         entry.setAiDraft(json(resumeResp) + "\n\n" + json(qaResp));

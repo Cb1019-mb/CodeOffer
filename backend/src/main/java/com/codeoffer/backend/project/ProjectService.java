@@ -18,7 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 项目域服务:录入/列表/详情/确认/删除/整仓重生成与仓库 URL 安全校验。 */
+/** 项目域服务:录入/列表/详情/确认/删除/整仓重生成与仓库 URL 安全校验。全部按用户隔离。 */
 @Service
 public class ProjectService {
 
@@ -48,37 +48,39 @@ public class ProjectService {
 
     // 注意:不加 @Transactional——@Async 生成线程在 READ_COMMITTED 下看不到未提交行,
     // 包事务会导致生成任务被当作「已删除」跳过。两次 save 各自原子,与现状一致。
-    public CreateResponse create(CreateRequest req) {
+    public CreateResponse create(Long userId, CreateRequest req) {
         String url = req.repoUrl() == null ? "" : req.repoUrl().trim();
         if (url.isEmpty()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "repoUrl 不能为空");
         }
         validateRepoUrl(url);
-        if (projects.findByRepoUrl(url).isPresent()) {
+        if (projects.findByRepoUrlAndUserId(url, userId).isPresent()) {
             throw new ApiException(HttpStatus.CONFLICT, "该仓库已录入过,请勿重复提交");
         }
         Project project = new Project();
         project.setRepoUrl(url);
         project.setName(deriveName(url));
+        project.setUserId(userId);
         project = projects.save(project);
 
         GenTask task = new GenTask();
         task.setProjectId(project.getId());
+        task.setUserId(userId);
         task = tasks.save(task);
 
         generate.runFullGeneration(project.getId(), task.getId());
         return new CreateResponse(project.getId(), task.getId(), project.getStatus().name());
     }
 
-    public List<ProjectView> list() {
-        return projects.findAll().stream()
+    public List<ProjectView> list(Long userId) {
+        return projects.findAllByUserId(userId).stream()
                 .map(this::toView)
                 .sorted((a, b) -> b.updatedAt().compareTo(a.updatedAt()))
                 .toList();
     }
 
-    public ProjectDetail detail(Long id) {
-        Project p = requireProject(id);
+    public ProjectDetail detail(Long userId, Long id) {
+        Project p = requireProject(userId, id);
         List<CardView> cardViews = cards.findByProjectIdOrderByIdAsc(id).stream()
                 .map(CardView::from)
                 .toList();
@@ -89,8 +91,8 @@ public class ProjectService {
                 cardViews, resume);
     }
 
-    public TaskView latestTask(Long id) {
-        requireProject(id);
+    public TaskView latestTask(Long userId, Long id) {
+        requireProject(userId, id);
         return tasks.findFirstByProjectIdOrderByIdDesc(id)
                 .map(t -> new TaskView(
                         t.getId(), t.getType().name(), t.getStatus().name(),
@@ -98,22 +100,22 @@ public class ProjectService {
                 .orElse(null);
     }
 
-    public List<CardView> cards(Long id) {
-        requireProject(id);
+    public List<CardView> cards(Long userId, Long id) {
+        requireProject(userId, id);
         return cards.findByProjectIdOrderByIdAsc(id).stream()
                 .map(CardView::from)
                 .toList();
     }
 
-    public ResumeView resume(Long id) {
-        requireProject(id);
+    public ResumeView resume(Long userId, Long id) {
+        requireProject(userId, id);
         return resumes.findByProjectId(id)
                 .map(ResumeView::from)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "尚无简历产出"));
     }
 
-    public ProjectDetail confirm(Long id) {
-        Project p = requireProject(id);
+    public ProjectDetail confirm(Long userId, Long id) {
+        Project p = requireProject(userId, id);
         if (p.getStatus() != ProjectStatus.REVIEW && p.getStatus() != ProjectStatus.DONE) {
             throw new ApiException(HttpStatus.CONFLICT,
                     "当前状态 " + p.getStatus() + " 不可确认,需先生成完毕(REVIEW 状态)");
@@ -121,20 +123,20 @@ public class ProjectService {
         p.setStatus(ProjectStatus.DONE);
         p.setUpdatedAt(Instant.now());
         projects.save(p);
-        return detail(id);
+        return detail(userId, id);
     }
 
     @Transactional
-    public void delete(Long id) {
-        requireProject(id);
+    public void delete(Long userId, Long id) {
+        requireProject(userId, id);
         cards.deleteByProjectId(id);
         resumes.findByProjectId(id).ifPresent(resumes::delete);
         tasks.findByProjectIdOrderByIdDesc(id).forEach(tasks::delete);
         projects.deleteById(id);
     }
 
-    public CreateResponse regenerate(Long id) {
-        Project p = requireProject(id);
+    public CreateResponse regenerate(Long userId, Long id) {
+        Project p = requireProject(userId, id);
         if (tasks.findFirstByProjectIdOrderByIdDesc(id)
                 .map(t -> t.getStatus() == TaskStatus.RUNNING)
                 .orElse(false)) {
@@ -145,13 +147,15 @@ public class ProjectService {
         projects.save(p);
         GenTask task = new GenTask();
         task.setProjectId(id);
+        task.setUserId(userId);
         task = tasks.save(task);
         generate.runFullGeneration(id, task.getId());
         return new CreateResponse(id, task.getId(), p.getStatus().name());
     }
 
-    public Project requireProject(Long id) {
-        return projects.findById(id)
+    /** 归属校验:跨用户访问与不存在一律 404,不暴露资源存在性。 */
+    public Project requireProject(Long userId, Long id) {
+        return projects.findByIdAndUserId(id, userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "项目不存在: " + id));
     }
 

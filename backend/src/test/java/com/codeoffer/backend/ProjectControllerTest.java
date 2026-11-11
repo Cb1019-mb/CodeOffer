@@ -62,14 +62,17 @@ class ProjectControllerTest {
 
     private static int urlSeq = 0;
 
+    private Long testUserId;
+
     @BeforeEach
     void seedTestUser() {
-        if (users.findByUsername("testuser").isEmpty()) {
-            AppUser u = new AppUser();
-            u.setUsername("testuser");
-            u.setPasswordHash(encoder.encode("pass12345"));
-            users.save(u);
-        }
+        AppUser u = users.findByUsername("testuser").orElseGet(() -> {
+            AppUser n = new AppUser();
+            n.setUsername("testuser");
+            n.setPasswordHash(encoder.encode("pass12345"));
+            return users.save(n);
+        });
+        testUserId = u.getId();
     }
 
     /** 每次创建使用唯一 URL,避免重复录入检测(409)干扰测试。 */
@@ -190,6 +193,7 @@ class ProjectControllerTest {
         Project p = new Project();
         p.setRepoUrl(uniqueUrl());
         p.setStatus(ProjectStatus.PENDING);
+        p.setUserId(testUserId);
         p = projects.save(p);
         GenTask t = new GenTask();
         t.setProjectId(p.getId());
@@ -206,6 +210,7 @@ class ProjectControllerTest {
         Project p = new Project();
         p.setRepoUrl(uniqueUrl());
         p.setStatus(ProjectStatus.GENERATING);
+        p.setUserId(testUserId);
         p = projects.save(p);
         GenTask t = new GenTask();
         t.setProjectId(p.getId());
