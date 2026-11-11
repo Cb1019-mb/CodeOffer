@@ -49,6 +49,10 @@
   - 🧭 **核心流程图**：Mermaid 可视化关键流程
   - 📝 **STAR 简历描述**：可直接用于项目简历
   - 🎯 **模拟面试题**：基础 / 进阶 / 深挖三档
+- **多用户与账号安全**：注册 / 登录 + 图形验证码，数据按用户隔离；首个注册用户为管理员并继承存量数据；管理员可禁用账号。
+- **自带 Key（BYOK）**：每个用户在设置页维护多套 LLM 档案（端点 / Key / 模型），一键切换、连接测试；Key 加密存储、脱敏展示。
+- **设置中心**：复习间隔参数、生成语言与篇幅、数据备份导出、克隆缓存管理（管理员）、亮 / 暗 / 跟随系统主题。
+- **目录式学习页**：左侧目录 + 子路由直达总览 / 各类卡片 / 简历 / 面试题，目录带掌握度与待复习徽标。
 - **迭代编辑**：AI 草稿 → 采纳或手写定稿；已编辑内容在重新生成时**不会被覆盖**。
 - **自测与复习**：卡片掌握度（0–5 级）+ 间隔复习队列，内置待复习队列。
 - **完整成果管理**：确认入库、删除项目、整仓重新生成。
@@ -60,6 +64,7 @@
 | 层次 | 技术 | 说明 |
 | --- | --- | --- |
 | **后端** | Java 21 · Spring Boot 4.1 | 业务 API、状态机、异步生成编排 |
+| | Spring Security 7 | 会话认证、CSRF、注册/登录与权限 |
 | | Spring Data JPA · MySQL 8.4（mysql-connector-j；测试用 H2） | 数据持久化 |
 | | Spring Actuator · Validation | 健康检查与参数校验 |
 | **AI 服务** | Python 3.13 · FastAPI · Uvicorn | 仓库抓取/解析 + LLM 调用 |
@@ -70,7 +75,7 @@
 | **工程化** | Maven · npm · oxlint | 构建与代码规范 |
 | **部署** | Docker Compose | 一键容器化 |
 
-> **AI 提供商**：通过 OpenAI 兼容端点接入，支持 `deepseek` / `qwen` / `zhipu`（见 `config/.env.example`）。
+> **AI 提供商**：OpenAI 兼容端点（DeepSeek / 通义 / 智谱 / 本地 vLLM 等）。每个用户在设置页配置并激活自己的档案（BYOK），生成请求按激活档案注入；`config/.env` 的 `LLM_*` 仅用于设置页「从 .env 导入」与 AI 服务直调时的回退。
 
 ---
 
@@ -95,7 +100,7 @@ git clone https://github.com/Cb1019-mb/CodeOffer.git
 cd CodeOffer
 ```
 
-复制环境变量模板并填入真实的 LLM Key：
+复制环境变量模板并填写：
 
 ```bash
 cp config/.env.example config/.env
@@ -104,8 +109,12 @@ cp config/.env.example config/.env
 编辑 `config/.env`：
 
 ```dotenv
-# AI 提供商:deepseek / qwen / zhipu(均走 OpenAI 兼容端点)
-LLM_PROVIDER=deepseek
+# LLM key 静态加密主密钥(必填,32 字节 Base64);丢失则所有用户已存 Key 不可解密
+# 生成: python -c "import secrets,base64;print(base64.b64encode(secrets.token_bytes(32)).decode())"
+LLM_MASTER_KEY=请填写
+
+# LLM 回退配置(可选):供设置页「从 .env 导入」与 AI 服务直调回退;
+# 多用户生成一律使用各用户激活的档案,不回退到这里
 LLM_BASE_URL=https://api.deepseek.com/v1
 LLM_API_KEY=sk-xxxxxxxxxxxxxxxx
 LLM_MODEL=deepseek-chat
@@ -124,7 +133,8 @@ MYSQL_PASSWORD=your-password
 MYSQL_ROOT_PASSWORD=your-root-password
 ```
 
-> ⚠️ `config/.env` **不入库**（见 `.gitignore`）。若在代理/自签名证书环境遇到 SSL 报错，可追加 `LLM_VERIFY_SSL=false`。
+> ⚠️ `config/.env` **不入库**（见 `.gitignore`）。`LLM_MASTER_KEY` 缺失或非法时后端启动直接失败；请离线备份该密钥。
+> 可选调优键见 `config/.env.example`：`LLM_VERIFY_SSL`（代理/自签名证书环境）、`LLM_PROXY`（显式代理，网关不读系统代理环境变量）、`LLM_MIN_INTERVAL_SECONDS`（低 RPM/TPM 配额提供商的调用间隔）。
 > MySQL 初始化执行 `scripts/setup-mysql.sql`：创建 `codeoffer` 库与 `codeoffer_app` 账号（只建库建账号，不建表；表由后端 `ddl-auto: update` 自动生成）。`docs/database/schema.sql` 仅是建表语句参考，以 `DROP TABLE IF EXISTS` 开头、重跑会清空数据，不要当作初始化脚本执行。存量 SQLite 数据迁移用 `scripts/migrate_sqlite_to_mysql.py`。该脚本会先清空目标四表再写入快照，目标表非空时须加 `--force` 才会执行，效果是回退到 SQLite 快照并丢弃迁移后新增的数据。
 
 ### 3.3 一键启动（推荐，Windows）
@@ -212,6 +222,9 @@ Compose 会依次构建并启动 `mysql`（3306）、`ai-service`（8001）与 `
 | 现象 | 处理 |
 | --- | --- |
 | 端口 3306 被占用 / MySQL 服务未启动 | 本机服务未启动时执行 `net start MySQL`（服务名 `MySQL`）；若本机服务占着 3306 而要用 Compose 的 `mysql`，先 `net stop MySQL`，或在 shell 里设 `MYSQL_PORT` 把容器发布到其它端口（见 3.5）——不要改 `config/.env` 的 `MYSQL_PORT`，它只决定后端 JDBC 连接端口 |
+| 后端启动报「缺少 LLM_MASTER_KEY」 | 按 3.2 的生成命令产出 32 字节 Base64 密钥写入 `config/.env`；已有部署换密钥会使已存用户 Key 无法解密 |
+| 生成报 429 / 限流 | 提供商 RPM/TPM 配额所致：在 `config/.env` 设 `LLM_MIN_INTERVAL_SECONDS`（如 65）拉开调用间隔，或更换配额更高的档案 |
+| 创建项目报「请先在设置中配置 AI 提供商」 | 当前用户未激活 LLM 档案：设置 → AI 模型 → 新建/导入并激活 |
 
 ---
 
@@ -220,20 +233,23 @@ Compose 会依次构建并启动 `mysql`（3306）、`ai-service`（8001）与 `
 ### 4.1 基本流程
 
 ```
-录入仓库 → 异步生成（克隆→解析→生成）→ 审阅产物 → 编辑/采纳 → 自测复习 → 确认入库
+注册/登录 → 设置 AI 档案(BYOK) → 录入仓库 → 异步生成（克隆→解析→体检→生成）
+→ 目录式审阅产物 → 编辑/采纳 → 自测复习 → 确认入库
 ```
 
 ### 4.2 核心功能演示
 
-1. **录入项目**：在首页输入受信任平台（GitHub / Gitee / GitLab / GitCode / Bitbucket 等）的 HTTPS 仓库地址，点击创建。后端校验通过后立即返回 `projectId` 并异步生成。
-2. **查看进度**：项目详情页轮询 `/api/projects/{id}/task`，展示任务状态与进度。
-3. **审阅知识卡片**：生成完成后（`REVIEW` 状态）浏览五类卡片。对每张卡片可：
+1. **注册与登录**：登录页注册（用户名 + 密码 + 图形验证码），首个注册用户为管理员并继承库中存量项目；其余用户从空数据开始，彼此隔离。
+2. **配置 AI**：设置 → AI 模型，新建档案（内置 DeepSeek / 通义 / 智谱 / 本地 vLLM 预设）或「从 .env 导入」，测试连接后激活；未激活档案时创建项目会给出友好提示。
+3. **录入项目**：在首页输入受信任平台（GitHub / Gitee / GitLab / GitCode / Bitbucket 等）的 HTTPS 仓库地址，点击创建。后端校验通过后立即返回 `projectId` 并异步生成。
+4. **查看进度**：学习页全局横幅轮询 `/api/projects/{id}/task`，展示任务状态与进度。
+5. **目录式审阅**：学习页左侧目录直达总览（项目信息 + 体检报告）、六类卡片、STAR 简历、模拟面试题；URL 形如 `/projects/{id}/cards/ARCHITECTURE`，可收藏直达。目录徽标标记已掌握与待复习。对每张卡片可：
    - 编辑定稿（`PUT .../content`）；
    - 采纳 AI 草稿（`POST .../adopt`）；
    - 重新生成单卡（`POST .../regenerate`）；
    - 补充个人输入（`POST .../user-input`）。
-4. **自测复习**：对卡片进行「掌握 / 生疏」自评，更新掌握度与下次复习时间；「待复习」队列会汇总到期卡片。
-5. **导出与入库**：审阅满意后点击「确认入库」，项目状态变为 `DONE`，成果持久化保存。
+6. **自测复习**：对卡片进行「掌握 / 生疏」自评，按设置中的间隔参数更新掌握度与下次复习时间；「待复习」队列会汇总到期卡片。
+7. **导出与入库**：审阅满意后在总览点击「确认入库」，项目状态变为 `DONE`；设置 → 数据管理可导出本人全部成果 JSON。
 
 ### 4.3 状态机
 
@@ -266,6 +282,40 @@ PENDING → CLONING → ANALYZING → GENERATING → REVIEW → DONE
 - **AI 服务**（FastAPI）：<http://127.0.0.1:8001/docs>
 
 ### 5.1 后端 API（`/api`）
+
+除健康检查与认证端点外，全部接口需登录会话（Cookie）；写请求另需 `X-XSRF-TOKEN` 头（取自 `XSRF-TOKEN` Cookie）。错误响应统一为 `{"detail": "<中文消息>"}`。
+
+#### 认证
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/auth/captcha` | 图形验证码（PNG，答案存会话，一次性、5 分钟过期） |
+| `POST` | `/api/auth/register` | 注册（用户名/密码/验证码），首用户为管理员 |
+| `POST` | `/api/auth/login` | 登录 |
+| `POST` | `/api/auth/logout` | 退出登录 |
+| `GET` | `/api/auth/me` | 当前用户 |
+| `PUT` | `/api/auth/password` | 修改密码（其它会话失效） |
+
+#### 设置（当前用户作用域）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` / `PUT` | `/api/settings` | 聚合读取 / 局部更新（激活档案、复习参数、生成偏好） |
+| `GET` / `POST` | `/api/settings/llm-profiles` | 档案列表（Key 脱敏）/ 新建 |
+| `PUT` / `DELETE` | `/api/settings/llm-profiles/{id}` | 编辑（Key 留空保留）/ 删除（激活中禁删） |
+| `POST` | `/api/settings/llm-profiles/{id}/activate` | 一键激活 |
+| `POST` | `/api/settings/llm-profiles/{id}/test` | 连接测试（延迟/模型回显） |
+| `POST` | `/api/settings/llm-profiles/import-env` | 从服务器 .env 导入档案 |
+| `GET` | `/api/settings/backup` | 本人全部成果 JSON 导出 |
+| `GET` | `/api/settings/storage-info` | 克隆缓存占用（仅管理员） |
+| `POST` | `/api/settings/clear-repo-cache` | 清理克隆缓存（仅管理员） |
+
+#### 用户管理（仅管理员）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/admin/users` | 用户列表 |
+| `PUT` | `/api/admin/users/{id}/status` | 禁用/启用（不能禁用自己；禁用即失效其会话） |
 
 #### 项目
 
@@ -308,17 +358,21 @@ PENDING → CLONING → ANALYZING → GENERATING → REVIEW → DONE
 #### 调用示例
 
 ```bash
-# 录入仓库（触发异步生成）
-curl -X POST http://127.0.0.1:8080/api/projects \
-  -H "Content-Type: application/json" \
+# 登录(验证码需人工识别 /api/auth/captcha 图片;脚本场景见 scripts/e2e.ps1 的 e2e 模式)
+curl -c cj.txt http://127.0.0.1:8080/api/auth/captcha -o captcha.png
+curl -b cj.txt -c cj.txt -X POST http://127.0.0.1:8080/api/auth/login \
+  -H "Content-Type: application/json" -H "X-XSRF-TOKEN: <cj.txt 中的 XSRF-TOKEN>" \
+  -d '{"username": "you", "password": "your-password", "captcha": "<识别结果>"}'
+
+# 录入仓库（触发异步生成;需已激活 LLM 档案）
+curl -b cj.txt -X POST http://127.0.0.1:8080/api/projects \
+  -H "Content-Type: application/json" -H "X-XSRF-TOKEN: <同上>" \
   -d '{"repoUrl": "https://github.com/octocat/Hello-World"}'
 # => {"projectId":1,"taskId":1,"status":"PENDING"}
 
-# 轮询生成进度
-curl http://127.0.0.1:8080/api/projects/1/task
-
-# 获取项目详情（卡片 + 简历）
-curl http://127.0.0.1:8080/api/projects/1
+# 轮询生成进度 / 获取项目详情（卡片 + 简历 + 体检报告）
+curl -b cj.txt http://127.0.0.1:8080/api/projects/1/task
+curl -b cj.txt http://127.0.0.1:8080/api/projects/1
 ```
 
 ### 5.2 AI 服务 API（`/api`）
@@ -333,6 +387,11 @@ curl http://127.0.0.1:8080/api/projects/1
 | `POST` | `/api/ai/flow-diagram` | 生成核心流程 Mermaid 图 |
 | `POST` | `/api/ai/resume` | 生成 STAR 简历描述 |
 | `POST` | `/api/ai/interview-questions` | 生成模拟面试题 |
+| `POST` | `/api/ai/test-connection` | LLM 连接测试（单次最小调用） |
+| `GET` | `/api/repos/cache-info` | 克隆缓存占用 |
+| `POST` | `/api/repos/clear-cache` | 清理克隆缓存 |
+
+生成类端点接受可选 `llm`（端点/Key/模型/SSL 覆盖）与 `prefs`（语言/篇幅）字段，由 Java 后端按用户激活档案注入；缺省回退环境变量配置。
 
 ---
 
@@ -345,12 +404,12 @@ CodeOffer/
 │   └── src/main/java/com/codeoffer/backend/
 │       ├── BackendApplication.java
 │       ├── HealthController.java
-│       ├── ai/                   # 异步生成编排与 AI 客户端
-│       │   ├── AiServiceClient.java
-│       │   ├── GenerateService.java
-│       │   └── GenerationWriter.java
-│       ├── config/               # 异步、Web、SPA 回退配置
-│       └── project/              # 领域模型、仓库、控制器、API 视图
+│       ├── ai/                   # 异步生成编排、AI 客户端、LLM 运行时快照
+│       ├── auth/                 # 用户、认证、验证码、会话失效、用户管理
+│       ├── common/               # 业务异常与统一错误契约
+│       ├── config/               # 安全、异步、Web、SPA 回退配置
+│       ├── project/              # 项目/卡片/简历 控制器—服务—仓库—视图
+│       └── settings/             # LLM 档案、设置 KV、加密、备份
 │   └── src/test/                 # 集成与控制器测试
 │
 ├── ai-service/                   # Python AI 服务 (FastAPI)
@@ -364,9 +423,13 @@ CodeOffer/
 │
 ├── frontend/                     # React SPA
 │   ├── src/
-│   │   ├── api/client.ts         # 后端 API 客户端
-│   │   ├── pages/                # HomePage / ProjectPage
-│   │   ├── components/           # CardList / QuizMode / ResumeSection / ...
+│   │   ├── api/client.ts         # 后端 API 客户端(CSRF/401 统一处理)
+│   │   ├── auth/                 # 会话上下文
+│   │   ├── theme/                # 亮/暗/跟随系统主题
+│   │   ├── pages/                # HomePage / LoginPage / SettingsPage
+│   │   ├── components/           # CardList / QuizMode / AppLayout / ...
+│   │   │   ├── project/          # 学习页布局与子路由分区
+│   │   │   └── settings/         # 设置页各分区
 │   │   ├── utils/export.ts       # 导出工具
 │   │   ├── types.ts
 │   │   ├── App.tsx / main.tsx
@@ -425,10 +488,10 @@ fix(ai-service): 修复 LLM 超时导致的 502 错误
 
 ### 7.3 代码规范
 
-- **后端**：遵循 Spring 官方约定，保持 `project` 包内「控制器 — 服务 — 仓库 — 视图」分层；公共映射逻辑收敛到 `toXxxView()` 辅助方法，避免内联重复。
+- **后端**：遵循 Spring 官方约定，保持「控制器 — 服务 — 仓库 — 视图」分层；公共映射收敛到 `ApiViews` 静态工厂，避免内联重复。
 - **AI 服务**：保持「服务只处理仓库 + 大模型、不触碰业务 DB」的职责边界；新增 Prompt 请放入 `prompts/`。
 - **前端**：使用 `npm run lint`（oxlint）校验，类型错误用 `npm run build` 拦截。
-- **测试**：后端 `.\mvnw.cmd test`、AI 服务 `.venv\Scripts\python -m pytest`；新增功能应补充相应单测。
+- **测试**：后端 `.\mvnw.cmd test`、AI 服务 `.venv\Scripts\python -m pytest`、全链路 `.\scripts\e2e.ps1`；新增功能应补充相应单测。
 
 ### 7.4 Pull Request 流程
 
