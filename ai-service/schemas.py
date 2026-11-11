@@ -24,9 +24,29 @@ class AnalyzeRequest(BaseModel):
     repo_dir: str = Field(..., min_length=1, max_length=1000)
 
 
+class LlmOverride(BaseModel):
+    """请求级 LLM 配置覆盖(Java 后端按用户档案注入);缺省回退 env。"""
+    base_url: str
+    api_key: str = ""
+    model: str
+    verify_ssl: bool = True
+
+
+class GenerationPrefs(BaseModel):
+    """生成偏好:语言与篇幅,注入 prompt system 指令。"""
+    language: str = "zh"
+    verbosity: str = "standard"
+
+
+class TestConnectionRequest(BaseModel):
+    llm: LlmOverride
+
+
 class HealthReportRequest(BaseModel):
     repo_url: str
     meta: dict[str, Any] | None = None
+    llm: LlmOverride | None = None
+    prefs: GenerationPrefs | None = None
 
 
 class KnowledgeCardsRequest(BaseModel):
@@ -35,15 +55,23 @@ class KnowledgeCardsRequest(BaseModel):
         default_factory=lambda: ["architecture", "difficulty", "highlight", "takeaway"],
         description="需要的卡片类型子集",
     )
+    llm: LlmOverride | None = None
+    prefs: GenerationPrefs | None = None
 
 
 class FlowDiagramRequest(BaseModel):
     repo_info: dict[str, Any]
+    llm: LlmOverride | None = None
+    prefs: GenerationPrefs | None = None
 
 
 class ResumeRequest(BaseModel):
     repo_info: dict[str, Any]
+    llm: LlmOverride | None = None
+    prefs: GenerationPrefs | None = None
 
 
 class InterviewQuestionsRequest(BaseModel):
     repo_info: dict[str, Any]
+    llm: LlmOverride | None = None
+    prefs: GenerationPrefs | None = None

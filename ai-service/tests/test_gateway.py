@@ -101,10 +101,13 @@ def test_auth_failure_raises_immediately():
     assert calls["n"] == 1
 
 
-def test_missing_api_key_raises(monkeypatch):
-    monkeypatch.delenv("LLM_API_KEY")
-    with pytest.raises(LLMError, match="LLM_API_KEY"):
-        chat_json([], cfg=_cfg())
+def test_missing_base_url_raises(monkeypatch):
+    """A3 语义:空 key 合法(本地 vLLM),缺 base_url 才报未配置。"""
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
+    cfg = _cfg()
+    cfg.base_url = ""
+    with pytest.raises(LLMError, match="未配置 LLM"):
+        chat_json([], cfg=cfg)
 
 
 def test_verify_ssl_false_disables_cert_check(monkeypatch):

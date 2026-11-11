@@ -44,9 +44,19 @@ class LLMConfig:
         # 代理/自签名证书环境可设 LLM_VERIFY_SSL=false 关闭校验(默认开启,保持安全)
         self.verify_ssl = os.environ.get("LLM_VERIFY_SSL", "true").lower() != "false"
 
+    @classmethod
+    def from_values(cls, base_url: str, api_key: str, model: str, verify_ssl: bool) -> "LLMConfig":
+        """请求级覆盖构造(用户档案);空 api_key 合法(本地 vLLM 无鉴权)。"""
+        cfg = cls.__new__(cls)
+        cfg.base_url = base_url.rstrip("/")
+        cfg.api_key = api_key or ""
+        cfg.model = model
+        cfg.verify_ssl = verify_ssl
+        return cfg
+
     @property
     def configured(self) -> bool:
-        return bool(self.api_key)
+        return bool(self.base_url)
 
 
 def _client(
@@ -67,8 +77,12 @@ def _post(
     temperature: float,
     timeout: float = 60.0,
     transport: httpx.BaseTransport | None = None,
-) -> str:
-    """调用 chat/completions 并返回 content 文本;限流(429)/5xx/网络抖动指数退避重试。
+    attempts: int = MAX_RETRIES,
+    max_tokens: int = 8000,
+    raw: bool = False,
+) -> Any:
+    """调用 chat/completions 并返回 content 文本(raw=True 返回解析后的 dict);
+    限流(429)/5xx/网络抖动指数退避重试。
     单次 60s、最多 3 次尝试(2 次重试)≈ 185s,与 Java 端 220s 读超时对齐;
     注意:JSON 修复重试路径会再发起一次调用,最坏约 370s,超出部分由 Java 端 220s 有界截断。"""
     url = f"{cfg.base_url}/chat/completions"
@@ -78,19 +92,21 @@ def _post(
         "messages": messages,
         "temperature": temperature,
         # 输出长度上限:5 张知识卡片(每张 300-800 字)加 JSON 结构约需 6-7k tokens,给足余量
-        "max_tokens": 8000,
+        "max_tokens": max_tokens,
     }
-    headers = {"Authorization": f"Bearer {cfg.api_key}", "Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json"}
+    if cfg.api_key:
+        headers["Authorization"] = f"Bearer {cfg.api_key}"
 
     last_err: Exception | None = None
     next_sleep: float | None = None
-    for attempt in range(1, MAX_RETRIES + 1):
+    for attempt in range(1, attempts + 1):
         try:
             with _client(timeout, transport, verify=cfg.verify_ssl) as client:
                 resp = client.post(url, json=payload, headers=headers)
             resp.raise_for_status()
             data = resp.json()
-            return _content_text(data)
+            return data if raw else _content_text(data)
         except httpx.HTTPStatusError as e:
             status = e.response.status_code
             if status in (401, 403):
@@ -109,15 +125,38 @@ def _post(
         except (KeyError, IndexError, TypeError, json.JSONDecodeError) as e:
             raise LLMError(f"LLM 响应结构异常: {e}") from e
 
-        if attempt < MAX_RETRIES:
+        if attempt < attempts:
             sleep = next_sleep if next_sleep is not None else BACKOFF_BASE_SECONDS**attempt
             next_sleep = None
-            logger.warning("LLM 调用失败(第 %d/%d 次):%s,%.1fs 后重试", attempt, MAX_RETRIES, last_err, sleep)
+            logger.warning("LLM 调用失败(第 %d/%d 次):%s,%.1fs 后重试", attempt, attempts, last_err, sleep)
             time.sleep(sleep)
 
     raise LLMError(
-        f"LLM 调用失败(已重试 {MAX_RETRIES} 次): {last_err}{_certificate_hint(last_err)}"
+        f"LLM 调用失败(已重试 {attempts} 次): {last_err}{_certificate_hint(last_err)}"
     ) from last_err
+
+
+def chat_test(cfg: LLMConfig) -> dict[str, Any]:
+    """连接测试:单次最小调用(不重试、15s、16 tokens),返回 ok/延迟/模型回显/错误。"""
+    t0 = time.monotonic()
+    try:
+        data = _post(
+            [{"role": "user", "content": "ping"}], cfg,
+            temperature=0.0, timeout=15.0, attempts=1, max_tokens=16, raw=True,
+        )
+        return {
+            "ok": True,
+            "latency_ms": int((time.monotonic() - t0) * 1000),
+            "model": data.get("model") or cfg.model,
+            "error": None,
+        }
+    except LLMError as e:
+        return {
+            "ok": False,
+            "latency_ms": int((time.monotonic() - t0) * 1000),
+            "model": cfg.model,
+            "error": str(e)[:300],
+        }
 
 
 def _retry_after_seconds(value: str | None) -> float:
@@ -199,7 +238,7 @@ def chat_json(
     """返回 LLM 的 JSON 响应;格式非法时带上下文自动修复重试一次。"""
     cfg = cfg or LLMConfig()
     if not cfg.configured:
-        raise LLMError("未配置 LLM_API_KEY:请复制 config/.env.example 为 config/.env 并填写")
+        raise LLMError("未配置 LLM:请在 config/.env 填写 LLM_BASE_URL,或在设置页配置并激活提供商档案")
 
     content = _post(messages, cfg, temperature=temperature, transport=transport)
     try:
@@ -231,5 +270,5 @@ def chat_text(
     """普通文本调用(降级路径:LLMJsonError 时由调用方决定)。"""
     cfg = cfg or LLMConfig()
     if not cfg.configured:
-        raise LLMError("未配置 LLM_API_KEY:请复制 config/.env.example 为 config/.env 并填写")
+        raise LLMError("未配置 LLM:请在 config/.env 填写 LLM_BASE_URL,或在设置页配置并激活提供商档案")
     return _post(messages, cfg, temperature=temperature, transport=transport)

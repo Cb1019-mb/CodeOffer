@@ -4,7 +4,8 @@ from .gateway import (
     LLMError,
     LLMJsonError,
     chat_json,
+    chat_test,
     chat_text,
 )
 
-__all__ = ["LLMConfig", "LLMError", "LLMJsonError", "chat_json", "chat_text"]
+__all__ = ["LLMConfig", "LLMError", "LLMJsonError", "chat_json", "chat_test", "chat_text"]
