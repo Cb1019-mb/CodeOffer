@@ -19,7 +19,6 @@ import java.util.NoSuchElementException;
 import java.util.concurrent.locks.ReentrantLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DataAccessException;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
@@ -45,7 +44,7 @@ public class GenerateService {
     private final ObjectMapper mapper;
     private final GenerationWriter writer;
 
-    /** 全局生成锁:SQLite 单写者,WAL 下并发写会触发 SQLITE_BUSY_SNAPSHOT,同一时间只允许一个生成任务 */
+    /** 全局生成锁:同一时间只允许一个生成任务,限制并发 LLM 调用并串行写入。 */
     private final ReentrantLock generationLock = new ReentrantLock();
 
     public GenerateService(
@@ -136,25 +135,25 @@ public class GenerateService {
             // 3) 生成
             transition(project, task, ProjectStatus.GENERATING, 50);
             Map<String, Object> cardsResp = ai.knowledgeCards(repoInfo, CARD_TYPES);
-            retryOnBusy(() -> writer.replaceCards(projectId, castCards(cardsResp.get("cards"))));
+            writer.replaceCards(projectId, castCards(cardsResp.get("cards")));
             task.setProgress(70);
             saveTask(task);
 
             Map<String, Object> flowResp = ai.flowDiagram(repoInfo);
-            retryOnBusy(() -> writer.saveFlowCard(
+            writer.saveFlowCard(
                     projectId,
                     (String) flowResp.getOrDefault("title", "核心流程图"),
-                    buildFlowContent(flowResp)));
+                    buildFlowContent(flowResp));
             task.setProgress(80);
             saveTask(task);
 
             Map<String, Object> resumeResp = ai.resume(repoInfo);
             Map<String, Object> qaResp = ai.interviewQuestions(repoInfo);
-            retryOnBusy(() -> writer.saveResumeEntry(
+            writer.saveResumeEntry(
                     projectId,
                     json(resumeResp) + "\n\n" + json(qaResp),
                     json(resumeResp.get("star")),
-                    json(qaResp.get("questions"))));
+                    json(qaResp.get("questions")));
             task.setProgress(90);
             saveTask(task);
 
@@ -198,46 +197,9 @@ public class GenerateService {
     private void transition(Project project, GenTask task, ProjectStatus status, int progress) {
         project.setStatus(status);
         project.setUpdatedAt(Instant.now());
-        retryOnBusy(() -> saveProject(project));
+        saveProject(project);
         task.setProgress(progress);
-        retryOnBusy(() -> saveTask(task));
-    }
-
-    /**
-     * 写操作遇 SQLite 锁冲突(SQLITE_BUSY / SQLITE_BUSY_SNAPSHOT)时重试。
-     * busy_timeout 对 SNAPSHOT 错误无效(等待无法解决快照过期),需事务级重试。
-     */
-    private void retryOnBusy(Runnable op) {
-        int attempts = 0;
-        while (true) {
-            try {
-                op.run();
-                return;
-            } catch (DataAccessException e) {
-                if (isBusyError(e) && ++attempts < 3) {
-                    try {
-                        Thread.sleep(300L * attempts);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        throw e;
-                    }
-                    continue;
-                }
-                throw e;
-            }
-        }
-    }
-
-    private static boolean isBusyError(DataAccessException e) {
-        Throwable cur = e;
-        while (cur != null) {
-            String msg = cur.getMessage();
-            if (msg != null && (msg.contains("SQLITE_BUSY") || msg.contains("database is locked"))) {
-                return true;
-            }
-            cur = cur.getCause();
-        }
-        return false;
+        saveTask(task);
     }
 
     @SuppressWarnings("unchecked")

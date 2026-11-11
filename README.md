@@ -120,6 +120,8 @@ MYSQL_PORT=3306
 MYSQL_DB=codeoffer
 MYSQL_USER=codeoffer_app
 MYSQL_PASSWORD=your-password
+# 仅 Compose 初始化 MySQL 容器使用
+MYSQL_ROOT_PASSWORD=your-root-password
 ```
 
 > ⚠️ `config/.env` **不入库**（见 `.gitignore`）。若在代理/自签名证书环境遇到 SSL 报错，可追加 `LLM_VERIFY_SSL=false`。
@@ -140,6 +142,8 @@ MYSQL_PASSWORD=your-password
 - 前端开发服务器（可选，需单独启动）：见下
 
 手动分步启动时，请自行确保 `MySQL` 服务已启动（`net start MySQL`）。
+
+> 后端须在 `backend/` 目录下启动（`.\mvnw.cmd spring-boot:run` 或 `scripts/dev-up.ps1`），相对路径 `../config/.env` 才能被解析；若在其它目录用 `java -jar` 启动，请自行导出 `MYSQL_*` 环境变量（或把 `.env` 放到对应位置）。缺少 `MYSQL_PASSWORD` 时后端启动会直接失败，不会静默以空密码连库。
 
 ### 3.4 手动分步启动
 
@@ -184,7 +188,7 @@ Compose 会依次构建并启动 `mysql`（3306）、`ai-service`（8001）与 `
 
 - `mysql` 使用 `mysql:8.4` 镜像，数据持久化到命名卷 `mysql-data`，库名取 `MYSQL_DB`（默认 `codeoffer`）；
 - `backend` 等待 `ai-service` 与 `mysql` 均通过健康检查后才启动，容器内通过 `MYSQL_HOST=mysql` 连接数据库；
-- 宿主机的 `./data` 挂载为 `/data`。MySQL 账号密码仍从 `config/.env` 注入（缺失时按 `.env.example` 补齐）。
+- MySQL 账号密码仍从 `config/.env` 注入（缺失时按 `.env.example` 补齐）。
 
 > 若本机已有 MySQL 服务占用 3306：
 >

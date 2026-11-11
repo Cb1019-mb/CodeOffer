@@ -58,8 +58,6 @@ services:
       - AI_SERVICE_URL=http://ai-service:8001
       - MYSQL_HOST=mysql
       - MYSQL_PORT=3306
-    volumes:
-      - ./data:/data
     restart: unless-stopped
 
 volumes:
