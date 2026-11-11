@@ -48,6 +48,7 @@ public class AuthService {
     private final KnowledgeCardRepository cards;
     private final ResumeEntryRepository resumes;
     private final SessionInvalidator sessionInvalidator;
+    private final boolean captchaEnabled;
     private final SecurityContextRepository contextRepository = new HttpSessionSecurityContextRepository();
 
     public AuthService(
@@ -60,7 +61,8 @@ public class AuthService {
             GenTaskRepository tasks,
             KnowledgeCardRepository cards,
             ResumeEntryRepository resumes,
-            SessionInvalidator sessionInvalidator) {
+            SessionInvalidator sessionInvalidator,
+            @org.springframework.beans.factory.annotation.Value("${auth.captcha-enabled:true}") boolean captchaEnabled) {
         this.users = users;
         this.encoder = encoder;
         this.authManager = authManager;
@@ -71,6 +73,7 @@ public class AuthService {
         this.cards = cards;
         this.resumes = resumes;
         this.sessionInvalidator = sessionInvalidator;
+        this.captchaEnabled = captchaEnabled;
     }
 
     @Transactional
@@ -130,6 +133,10 @@ public class AuthService {
     }
 
     private void requireCaptcha(AuthRequest req, HttpServletRequest request) {
+        // e2e 模式(--auth.captcha-enabled=false)跳过图形验证码;生产默认开启
+        if (!captchaEnabled) {
+            return;
+        }
         if (!captcha.validate(request.getSession(true), req.captcha())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "验证码错误或已过期");
         }

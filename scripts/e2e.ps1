@@ -69,7 +69,7 @@ Start-Process -FilePath (Join-Path $ws "ai-service\.venv\Scripts\python.exe") `
 # 3) 启动后端(8080)
 Write-Host "[3/6] 启动后端 (8080)..."
 Start-Process -FilePath "cmd.exe" `
-    -ArgumentList "/c", "mvnw.cmd spring-boot:run" `
+    -ArgumentList "/c", "mvnw.cmd spring-boot:run -Dspring-boot.run.arguments=--auth.captcha-enabled=false" `
     -WorkingDirectory (Join-Path $ws "backend") -WindowStyle Hidden `
     -RedirectStandardOutput (Join-Path $logs "backend.log") `
     -RedirectStandardError (Join-Path $logs "backend.err.log")
@@ -100,25 +100,58 @@ if (-not ($aiOk -and $bkOk)) {
 }
 Write-Host "      服务就绪: AI 服务 + 后端"
 
+# 4.5) 注册 e2e 账号并建立会话(e2e 模式验证码已关闭);BYOK:为其创建并激活 LLM 档案
+Write-Host "[4.5/6] 注册 e2e 账号与 LLM 档案..."
+$base = "http://127.0.0.1:8080"
+Invoke-WebRequest -Uri "$base/api/auth/captcha" -SessionVariable sess -TimeoutSec 5 | Out-Null
+$xsrf = ($sess.Cookies.GetCookies($base) | Where-Object { $_.Name -eq "XSRF-TOKEN" }).Value
+$authH = @{ "X-XSRF-TOKEN" = $xsrf }
+try {
+    $reg = Invoke-RestMethod -Uri "$base/api/auth/register" -Method Post -WebSession $sess -Headers $authH `
+        -ContentType "application/json" `
+        -Body (@{ username = "e2e_user"; password = "e2e-pass-123"; captcha = "e2e" } | ConvertTo-Json)
+} catch {
+    $reg = Invoke-RestMethod -Uri "$base/api/auth/login" -Method Post -WebSession $sess -Headers $authH `
+        -ContentType "application/json" `
+        -Body (@{ username = "e2e_user"; password = "e2e-pass-123"; captcha = "e2e" } | ConvertTo-Json)
+}
+$xsrf = ($sess.Cookies.GetCookies($base) | Where-Object { $_.Name -eq "XSRF-TOKEN" }).Value
+$authH = @{ "X-XSRF-TOKEN" = $xsrf }
+Write-Host "      账号: $($reg.username) role=$($reg.role)"
+$llm = @{ baseUrl = "https://invalid.e2e.local/v1"; apiKey = "e2e"; model = "e2e-model" }
+$envFile = Join-Path $ws "config\.env"
+if (Test-Path $envFile) {
+    foreach ($line in Get-Content $envFile) {
+        if ($line -match "^LLM_BASE_URL=(.+)$") { $llm.baseUrl = $Matches[1].Trim() }
+        if ($line -match "^LLM_API_KEY=(.+)$") { $llm.apiKey = $Matches[1].Trim() }
+        if ($line -match "^LLM_MODEL=(.+)$") { $llm.model = $Matches[1].Trim() }
+    }
+}
+$prof = Invoke-RestMethod -Uri "$base/api/settings/llm-profiles" -Method Post -WebSession $sess -Headers $authH `
+    -ContentType "application/json" `
+    -Body (@{ name = "e2e"; provider = "custom"; baseUrl = $llm.baseUrl; apiKey = $llm.apiKey; model = $llm.model; verifySsl = $false } | ConvertTo-Json)
+Invoke-RestMethod -Uri "$base/api/settings/llm-profiles/$($prof.id)/activate" -Method Post -WebSession $sess -Headers $authH | Out-Null
+Write-Host "      LLM 档案已激活: $($llm.baseUrl)"
+
 # 5) 创建项目并轮询任务
 Write-Host "[5/6] 创建项目并等待生成..."
 # 幂等:后端已禁止重复录入同一仓库(409),先清理上次 e2e 遗留的同 URL 项目
 try {
-    $existing = Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/projects" -TimeoutSec 5
+    $existing = Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/projects" -WebSession $sess -TimeoutSec 5
     foreach ($p in $existing) {
         if ($p.repoUrl -eq $RepoUrl) {
-            Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/projects/$($p.id)" -Method Delete -TimeoutSec 5 | Out-Null
+            Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/projects/$($p.id)" -Method Delete -WebSession $sess -Headers $authH -TimeoutSec 5 | Out-Null
             Write-Host "      已清理上次 e2e 遗留项目 #$($p.id)"
         }
     }
 } catch { }
-$created = Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/projects" -Method Post `
+$created = Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/projects" -Method Post -WebSession $sess -Headers $authH `
     -ContentType "application/json" -Body (@{ repoUrl = $RepoUrl } | ConvertTo-Json)
 Write-Host "      项目 #$($created.projectId) 已创建"
 $task = $null
 for ($i = 0; $i -lt 150; $i++) {  # 最长 300s:全链路 4 次 LLM 调用,单次最长 ~80s
     Start-Sleep -Seconds 2
-    $task = Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/projects/$($created.projectId)/task"
+    $task = Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/projects/$($created.projectId)/task" -WebSession $sess
     if ($task.status -ne "RUNNING") { break }
 }
 Write-Host "      任务终态: $($task.status) progress=$($task.progress)"
@@ -126,20 +159,20 @@ Write-Host "      任务终态: $($task.status) progress=$($task.progress)"
 # 6) 结果断言
 Write-Host "[6/6] 校验结果..."
 if ($task.status -eq "DONE") {
-    $detail = Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/projects/$($created.projectId)"
+    $detail = Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/projects/$($created.projectId)" -WebSession $sess
     if ($detail.cards.Count -lt 3) {
         Write-Host "[FAIL] 卡片数量异常: $($detail.cards.Count)"
         exit 1
     }
     $cardId = $detail.cards[0].id
     $edited = Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/projects/$($created.projectId)/cards/$cardId/content" `
-        -Method Put -ContentType "application/json" -Body (@{ content = "e2e 手写内容" } | ConvertTo-Json)
+        -Method Put -WebSession $sess -Headers $authH -ContentType "application/json" -Body (@{ content = "e2e 手写内容" } | ConvertTo-Json)
     if (-not $edited.edited) {
         Write-Host "[FAIL] 编辑标记缺失"
         exit 1
     }
     $reviewed = Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/projects/$($created.projectId)/cards/$cardId/review" `
-        -Method Post -ContentType "application/json" -Body (@{ known = $true } | ConvertTo-Json)
+        -Method Post -WebSession $sess -Headers $authH -ContentType "application/json" -Body (@{ known = $true } | ConvertTo-Json)
     if ($reviewed.mastery -lt 1) {
         Write-Host "[FAIL] 掌握度未更新"
         exit 1
