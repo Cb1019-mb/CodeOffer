@@ -62,7 +62,6 @@ export default function HomePage() {
 
   return (
     <div style={{ maxWidth: 960, margin: '32px auto', padding: '0 24px' }}>
-      <Typography.Title level={2}>CodeOffer</Typography.Title>
       <Typography.Paragraph type="secondary">
         智能项目学习与简历生成引擎 · 粘贴 GitHub 仓库地址,AI 帮你解析、内化并产出简历素材
       </Typography.Paragraph>

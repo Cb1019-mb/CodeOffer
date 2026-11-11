@@ -6,6 +6,7 @@ import type {
   ProjectView,
   ResumeView,
   TaskView,
+  UserView,
 } from '../types'
 
 const DEFAULT_TIMEOUT = 30_000
@@ -16,17 +17,27 @@ interface RequestOptions extends RequestInit {
   timeout?: number
 }
 
+/** CSRF:从 XSRF-TOKEN cookie 取值,写请求带 X-XSRF-TOKEN 头(Spring Security spa 模式)。 */
+function xsrfHeader(): Record<string, string> {
+  const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/)
+  return match ? { 'X-XSRF-TOKEN': decodeURIComponent(match[1]) } : {}
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const timeout = options.timeout ?? DEFAULT_TIMEOUT
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeout)
   try {
     const resp = await fetch(path, {
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...xsrfHeader() },
       signal: controller.signal,
       ...options,
     })
     if (!resp.ok) {
+      // 会话失效统一跳登录页(认证端点自身除外,避免登录页死循环)
+      if (resp.status === 401 && !path.startsWith('/api/auth/')) {
+        window.location.assign('/login')
+      }
       let detail: unknown = `HTTP ${resp.status}`
       try {
         const body = await resp.json()
@@ -53,6 +64,20 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 }
 
 export const api = {
+  // 认证
+  me: () => request<UserView>('/api/auth/me'),
+  login: (username: string, password: string, captcha: string) =>
+    request<UserView>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password, captcha }),
+    }),
+  register: (username: string, password: string, captcha: string) =>
+    request<UserView>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, password, captcha }),
+    }),
+  logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
+
   createProject: (repoUrl: string) =>
     request<CreateResponse>('/api/projects', {
       method: 'POST',

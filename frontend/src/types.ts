@@ -1,4 +1,10 @@
 // 与 Java 后端交互的类型定义(M2 契约)
+export interface UserView {
+  id: number
+  username: string
+  role: 'ADMIN' | 'USER'
+}
+
 export interface ProjectView {
   id: number
   name: string
