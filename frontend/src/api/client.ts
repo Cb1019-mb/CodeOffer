@@ -1,11 +1,18 @@
 // API 客户端:相对路径经 Vite proxy 转发到 Java 后端(8080)
 import type {
+  AdminUserView,
   CardView,
   CreateResponse,
+  GenerationPrefs,
+  LlmProfileView,
+  ProfileInput,
   ProjectDetail,
   ProjectView,
   ResumeView,
+  ReviewParams,
+  SettingsView,
   TaskView,
+  TestResult,
   UserView,
 } from '../types'
 
@@ -130,4 +137,41 @@ export const api = {
       body: JSON.stringify({ known }),
     }),
   reviewQueue: (id: number) => request<CardView[]>(`/api/projects/${id}/review-queue`),
+
+  // 设置:聚合与档案
+  settingsGet: () => request<SettingsView>('/api/settings'),
+  settingsPut: (body: { activeProfileId?: number; review?: ReviewParams; generation?: GenerationPrefs }) =>
+    request<void>('/api/settings', { method: 'PUT', body: JSON.stringify(body) }),
+  profilesList: () => request<LlmProfileView[]>('/api/settings/llm-profiles'),
+  profileCreate: (body: ProfileInput) =>
+    request<LlmProfileView>('/api/settings/llm-profiles', { method: 'POST', body: JSON.stringify(body) }),
+  profileUpdate: (id: number, body: ProfileInput) =>
+    request<LlmProfileView>(`/api/settings/llm-profiles/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  profileDelete: (id: number) => request<void>(`/api/settings/llm-profiles/${id}`, { method: 'DELETE' }),
+  profileActivate: (id: number) =>
+    request<void>(`/api/settings/llm-profiles/${id}/activate`, { method: 'POST' }),
+  profileTest: (id: number) =>
+    request<TestResult>(`/api/settings/llm-profiles/${id}/test`, { method: 'POST', timeout: 40_000 }),
+  profileImportEnv: () =>
+    request<LlmProfileView>('/api/settings/llm-profiles/import-env', { method: 'POST' }),
+
+  // 设置:数据管理 / 账号 / 管理员
+  storageInfo: () => request<{ sizeBytes: number; repoCount: number }>('/api/settings/storage-info'),
+  clearRepoCache: () => request<{ ok: boolean; removed: number }>('/api/settings/clear-repo-cache', { method: 'POST' }),
+  changePassword: (oldPassword: string, newPassword: string) =>
+    request<void>('/api/auth/password', { method: 'PUT', body: JSON.stringify({ oldPassword, newPassword }) }),
+  adminUsers: () => request<AdminUserView[]>('/api/admin/users'),
+  adminSetStatus: (id: number, enabled: boolean) =>
+    request<void>(`/api/admin/users/${id}/status`, { method: 'PUT', body: JSON.stringify({ enabled }) }),
+  backupDownload: async () => {
+    const resp = await fetch('/api/settings/backup', { headers: { ...xsrfHeader() } })
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+    const blob = await resp.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `codeoffer-backup-${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  },
 }

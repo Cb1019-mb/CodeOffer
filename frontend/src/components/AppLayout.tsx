@@ -22,8 +22,11 @@ export default function AppLayout() {
         <Menu
           theme="dark"
           mode="horizontal"
-          selectedKeys={[location.pathname === '/' ? 'home' : 'other']}
-          items={[{ key: 'home', label: <Link to="/">项目</Link> }]}
+          selectedKeys={[location.pathname === '/' ? 'home' : location.pathname.startsWith('/settings') ? 'settings' : 'other']}
+          items={[
+            { key: 'home', label: <Link to="/">项目</Link> },
+            { key: 'settings', label: <Link to="/settings">设置</Link> },
+          ]}
           style={{ flex: 1, minWidth: 0 }}
         />
         <Dropdown

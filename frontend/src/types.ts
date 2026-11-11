@@ -61,6 +61,58 @@ export interface CreateResponse {
   status: string
 }
 
+export interface LlmProfileView {
+  id: number
+  name: string
+  provider: string
+  baseUrl: string
+  model: string
+  apiKeyMasked: string
+  verifySsl: boolean
+  active: boolean
+}
+
+export interface ProfileInput {
+  name: string
+  provider: string
+  baseUrl: string
+  apiKey: string
+  model: string
+  verifySsl: boolean
+}
+
+export interface ReviewParams {
+  intervalDays: number[]
+  unknownPenalty: number
+  unknownDelaySeconds: number
+}
+
+export interface GenerationPrefs {
+  language: string
+  verbosity: string
+}
+
+export interface SettingsView {
+  activeProfileId: number | null
+  review: ReviewParams
+  generation: GenerationPrefs
+}
+
+export interface TestResult {
+  ok: boolean
+  latencyMs: number
+  model: string
+  error: string | null
+}
+
+export interface AdminUserView {
+  id: number
+  username: string
+  role: string
+  enabled: boolean
+  createdAt: string
+}
+
 export const STATUS_LABEL: Record<string, string> = {
   PENDING: '待处理',
   CLONING: '克隆中',
