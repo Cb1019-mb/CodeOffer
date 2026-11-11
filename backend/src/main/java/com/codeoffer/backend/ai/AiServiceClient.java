@@ -57,7 +57,9 @@ public class AiServiceClient {
         } catch (RestClientResponseException e) {
             // 只透传状态码与 AI 服务 detail 字段(截断),不泄露原始响应体/堆栈
             String detail = extractDetail(e);
-            throw new IllegalStateException("AI 服务调用失败(HTTP " + e.getStatusCode().value() + "): " + detail);
+            throw new com.codeoffer.backend.common.ApiException(
+                    org.springframework.http.HttpStatus.BAD_GATEWAY,
+                    "AI 服务调用失败(HTTP " + e.getStatusCode().value() + "): " + detail);
         }
     }
 
@@ -182,7 +184,9 @@ public class AiServiceClient {
             return read(resp);
         } catch (RestClientResponseException e) {
             String detail = extractDetail(e);
-            throw new IllegalStateException("AI 服务调用失败(HTTP " + e.getStatusCode().value() + "): " + detail);
+            throw new com.codeoffer.backend.common.ApiException(
+                    org.springframework.http.HttpStatus.BAD_GATEWAY,
+                    "AI 服务调用失败(HTTP " + e.getStatusCode().value() + "): " + detail);
         }
     }
 }
