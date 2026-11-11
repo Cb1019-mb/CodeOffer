@@ -27,11 +27,20 @@ public class SettingsController {
 
     private final SettingsService settings;
     private final ProfileService profileService;
+    private final BackupService backupService;
+    private final com.codeoffer.backend.ai.AiServiceClient ai;
     private final CurrentUser currentUser;
 
-    public SettingsController(SettingsService settings, ProfileService profileService, CurrentUser currentUser) {
+    public SettingsController(
+            SettingsService settings,
+            ProfileService profileService,
+            BackupService backupService,
+            com.codeoffer.backend.ai.AiServiceClient ai,
+            CurrentUser currentUser) {
         this.settings = settings;
         this.profileService = profileService;
+        this.backupService = backupService;
+        this.ai = ai;
         this.currentUser = currentUser;
     }
 
@@ -85,5 +94,28 @@ public class SettingsController {
     @PostMapping("/llm-profiles/import-env")
     public ProfileService.ProfileView importEnv() {
         return profileService.importEnv(currentUser.require().getId());
+    }
+
+    @GetMapping("/backup")
+    public BackupService.Backup backup() {
+        return backupService.export(currentUser.require());
+    }
+
+    @GetMapping("/storage-info")
+    public Map<String, Object> storageInfo() {
+        requireAdmin();
+        return ai.cacheInfo();
+    }
+
+    @PostMapping("/clear-repo-cache")
+    public Map<String, Object> clearRepoCache() {
+        requireAdmin();
+        return ai.clearCache();
+    }
+
+    private void requireAdmin() {
+        if (currentUser.require().getRole() != com.codeoffer.backend.auth.AppUser.Role.ADMIN) {
+            throw new com.codeoffer.backend.common.ApiException(HttpStatus.FORBIDDEN, "无权访问");
+        }
     }
 }
