@@ -47,6 +47,7 @@ public class AuthService {
     private final GenTaskRepository tasks;
     private final KnowledgeCardRepository cards;
     private final ResumeEntryRepository resumes;
+    private final SessionInvalidator sessionInvalidator;
     private final SecurityContextRepository contextRepository = new HttpSessionSecurityContextRepository();
 
     public AuthService(
@@ -58,7 +59,8 @@ public class AuthService {
             ProjectRepository projects,
             GenTaskRepository tasks,
             KnowledgeCardRepository cards,
-            ResumeEntryRepository resumes) {
+            ResumeEntryRepository resumes,
+            SessionInvalidator sessionInvalidator) {
         this.users = users;
         this.encoder = encoder;
         this.authManager = authManager;
@@ -68,6 +70,7 @@ public class AuthService {
         this.tasks = tasks;
         this.cards = cards;
         this.resumes = resumes;
+        this.sessionInvalidator = sessionInvalidator;
     }
 
     @Transactional
@@ -112,6 +115,18 @@ public class AuthService {
 
     public AuthView me(AppUser user) {
         return new AuthView(user.getId(), user.getUsername(), user.getRole().name());
+    }
+
+    /** 修改密码:校验旧密码,成功后失效其它会话(当前会话保留)。 */
+    public void changePassword(AppUser user, String oldPassword, String newPassword, String currentSessionId) {
+        if (oldPassword == null || !encoder.matches(oldPassword, user.getPasswordHash())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "旧密码不正确");
+        }
+        requirePasswordStrength(newPassword);
+        user.setPasswordHash(encoder.encode(newPassword));
+        user.setUpdatedAt(Instant.now());
+        users.save(user);
+        sessionInvalidator.invalidateOthers(user.getUsername(), currentSessionId);
     }
 
     private void requireCaptcha(AuthRequest req, HttpServletRequest request) {

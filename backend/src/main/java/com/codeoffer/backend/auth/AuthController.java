@@ -69,6 +69,16 @@ public class AuthController {
         return authService.me(currentUser.require());
     }
 
+    public record ChangePasswordRequest(String oldPassword, String newPassword) {
+    }
+
+    @org.springframework.web.bind.annotation.PutMapping("/password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void changePassword(@RequestBody ChangePasswordRequest req, HttpServletRequest request) {
+        authService.changePassword(currentUser.require(), req.oldPassword(), req.newPassword(),
+                request.getSession().getId());
+    }
+
     private void rateLimit(HttpServletRequest request) {
         if (!rateLimiter.tryAcquire(request.getRemoteAddr())) {
             throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "请求过于频繁,请稍后再试");
