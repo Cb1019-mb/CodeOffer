@@ -1,17 +1,23 @@
 package com.codeoffer.backend;
 
 import com.codeoffer.backend.ai.AiServiceClient;
+import com.codeoffer.backend.auth.AppUser;
+import com.codeoffer.backend.auth.AppUserRepository;
 import com.codeoffer.backend.project.Project;
 import com.codeoffer.backend.project.ProjectRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -25,7 +31,19 @@ class ErrorContractTest {
 
     @Autowired private MockMvc mvc;
     @Autowired private ProjectRepository projects;
+    @Autowired private AppUserRepository users;
+    @Autowired private PasswordEncoder encoder;
     @MockitoBean private AiServiceClient ai;
+
+    @BeforeEach
+    void seedTestUser() {
+        if (users.findByUsername("testuser").isEmpty()) {
+            AppUser u = new AppUser();
+            u.setUsername("testuser");
+            u.setPasswordHash(encoder.encode("pass12345"));
+            users.save(u);
+        }
+    }
 
     @Test
     void duplicateCreate_returns409WithChineseDetail() throws Exception {
@@ -34,6 +52,7 @@ class ErrorContractTest {
         projects.save(p);
 
         mvc.perform(post("/api/projects")
+                        .with(user("testuser")).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"repoUrl\": \"https://github.com/octocat/error-contract-dup\"}"))
                 .andExpect(status().isConflict())
@@ -42,7 +61,7 @@ class ErrorContractTest {
 
     @Test
     void unknownProject_returns404WithDetail() throws Exception {
-        mvc.perform(get("/api/projects/{id}", 999999L))
+        mvc.perform(get("/api/projects/{id}", 999999L).with(user("testuser")))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.detail").value("项目不存在: 999999"));
     }
@@ -50,6 +69,7 @@ class ErrorContractTest {
     @Test
     void blankUrl_returns400WithDetail() throws Exception {
         mvc.perform(post("/api/projects")
+                        .with(user("testuser")).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"repoUrl\": \"   \"}"))
                 .andExpect(status().isBadRequest())
@@ -58,7 +78,7 @@ class ErrorContractTest {
 
     @Test
     void unknownApiPath_returns404WithDetail() throws Exception {
-        mvc.perform(get("/api/definitely-not-exists"))
+        mvc.perform(get("/api/definitely-not-exists").with(user("testuser")))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.detail").exists());
     }
@@ -66,6 +86,7 @@ class ErrorContractTest {
     @Test
     void malformedBody_returns400WithDetail() throws Exception {
         mvc.perform(post("/api/projects")
+                        .with(user("testuser")).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{not json"))
                 .andExpect(status().isBadRequest())

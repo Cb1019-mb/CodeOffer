@@ -1,6 +1,8 @@
 package com.codeoffer.backend;
 
 import com.codeoffer.backend.ai.AiServiceClient;
+import com.codeoffer.backend.auth.AppUser;
+import com.codeoffer.backend.auth.AppUserRepository;
 import com.codeoffer.backend.project.GenTask;
 import com.codeoffer.backend.project.GenTask.TaskStatus;
 import com.codeoffer.backend.project.GenTaskRepository;
@@ -9,11 +11,13 @@ import com.codeoffer.backend.project.ProjectRepository;
 import com.codeoffer.backend.project.ProjectStatus;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -25,6 +29,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -46,11 +52,25 @@ class ProjectControllerTest {
     private GenTaskRepository tasks;
     @Autowired
     private ProjectRepository projects;
+    @Autowired
+    private AppUserRepository users;
+    @Autowired
+    private PasswordEncoder encoder;
 
     @MockitoBean
     private AiServiceClient ai;
 
     private static int urlSeq = 0;
+
+    @BeforeEach
+    void seedTestUser() {
+        if (users.findByUsername("testuser").isEmpty()) {
+            AppUser u = new AppUser();
+            u.setUsername("testuser");
+            u.setPasswordHash(encoder.encode("pass12345"));
+            users.save(u);
+        }
+    }
 
     /** 每次创建使用唯一 URL,避免重复录入检测(409)干扰测试。 */
     private static String uniqueUrl() {
@@ -77,6 +97,7 @@ class ProjectControllerTest {
         stubAi();
 
         MvcResult created = mvc.perform(post("/api/projects")
+                        .with(user("testuser")).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"repoUrl\": \"" + uniqueUrl() + "\"}"))
                 .andExpect(status().isOk())
@@ -96,24 +117,24 @@ class ProjectControllerTest {
             Thread.sleep(100);
         }
 
-        mvc.perform(get("/api/projects/{id}", projectId))
+        mvc.perform(get("/api/projects/{id}", projectId).with(user("testuser")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("REVIEW"))
                 .andExpect(jsonPath("$.cards.length()").value(3)); // 2 卡 + 1 流程图
 
-        mvc.perform(get("/api/projects/{id}/cards", projectId))
+        mvc.perform(get("/api/projects/{id}/cards", projectId).with(user("testuser")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].type").exists());
 
-        mvc.perform(get("/api/projects/{id}/resume", projectId))
+        mvc.perform(get("/api/projects/{id}/resume", projectId).with(user("testuser")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.starContent").exists());
 
-        mvc.perform(get("/api/projects"))
+        mvc.perform(get("/api/projects").with(user("testuser")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].cardCount").value(3));
 
-        mvc.perform(post("/api/projects/{id}/confirm", projectId))
+        mvc.perform(post("/api/projects/{id}/confirm", projectId).with(user("testuser")).with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("DONE"));
     }
@@ -121,6 +142,7 @@ class ProjectControllerTest {
     @Test
     void createWithBlankUrl_rejected() throws Exception {
         mvc.perform(post("/api/projects")
+                        .with(user("testuser")).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"repoUrl\": \"   \"}"))
                 .andExpect(status().isBadRequest());
@@ -130,14 +152,17 @@ class ProjectControllerTest {
     void createWithUnsafeUrl_rejected() throws Exception {
         // 非 https/file、非受信任平台、携带凭证的 URL 均拒绝
         mvc.perform(post("/api/projects")
+                        .with(user("testuser")).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"repoUrl\": \"http://169.254.169.254/latest/meta-data\"}"))
                 .andExpect(status().isBadRequest());
         mvc.perform(post("/api/projects")
+                        .with(user("testuser")).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"repoUrl\": \"ssh://git@github.com/octocat/Hello-World.git\"}"))
                 .andExpect(status().isBadRequest());
         mvc.perform(post("/api/projects")
+                        .with(user("testuser")).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"repoUrl\": \"https://user:token@github.com/octocat/Hello-World\"}"))
                 .andExpect(status().isBadRequest());
@@ -148,10 +173,12 @@ class ProjectControllerTest {
         stubAi();
         String url = uniqueUrl();
         mvc.perform(post("/api/projects")
+                        .with(user("testuser")).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"repoUrl\": \"" + url + "\"}"))
                 .andExpect(status().isOk());
         mvc.perform(post("/api/projects")
+                        .with(user("testuser")).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"repoUrl\": \"" + url + "\"}"))
                 .andExpect(status().isConflict());
@@ -169,7 +196,7 @@ class ProjectControllerTest {
         t.setStatus(TaskStatus.RUNNING);
         tasks.save(t);
 
-        mvc.perform(post("/api/projects/{id}/confirm", p.getId()))
+        mvc.perform(post("/api/projects/{id}/confirm", p.getId()).with(user("testuser")).with(csrf()))
                 .andExpect(status().isConflict());
     }
 
@@ -185,7 +212,7 @@ class ProjectControllerTest {
         t.setStatus(TaskStatus.RUNNING);
         tasks.save(t);
 
-        mvc.perform(post("/api/projects/{id}/regenerate", p.getId()))
+        mvc.perform(post("/api/projects/{id}/regenerate", p.getId()).with(user("testuser")).with(csrf()))
                 .andExpect(status().isConflict());
     }
 
@@ -197,6 +224,7 @@ class ProjectControllerTest {
 
         // 编辑第一张卡片
         mvc.perform(put("/api/projects/{id}/cards/{cardId}/content", projectId, cardId)
+                        .with(user("testuser")).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"content\": \"用户手写内容\"}"))
                 .andExpect(status().isOk())
@@ -204,7 +232,7 @@ class ProjectControllerTest {
                 .andExpect(jsonPath("$.content").value("用户手写内容"));
 
         // 重新生成:已编辑内容不被覆盖
-        mvc.perform(post("/api/projects/{id}/cards/{cardId}/regenerate", projectId, cardId))
+        mvc.perform(post("/api/projects/{id}/cards/{cardId}/regenerate", projectId, cardId).with(user("testuser")).with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.edited").value(true))
                 .andExpect(jsonPath("$.content").value("用户手写内容"))
@@ -218,6 +246,7 @@ class ProjectControllerTest {
         long cardId = firstCardId(projectId);
 
         mvc.perform(post("/api/projects/{id}/cards/{cardId}/user-input", projectId, cardId)
+                        .with(user("testuser")).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"input\": \"JDK 需 17+\"}"))
                 .andExpect(status().isOk())
@@ -231,6 +260,7 @@ class ProjectControllerTest {
         long projectId = createAndAwait();
 
         mvc.perform(put("/api/projects/{id}/resume/star", projectId)
+                        .with(user("testuser")).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"starContent\": \"{\\\"summary\\\":\\\"改过的亮点\\\"}\"}"))
                 .andExpect(status().isOk())
@@ -245,12 +275,13 @@ class ProjectControllerTest {
         long cardId = firstCardId(projectId);
 
         // 初始:全部卡片都在复习队列(mastery=0)
-        mvc.perform(get("/api/projects/{id}/review-queue", projectId))
+        mvc.perform(get("/api/projects/{id}/review-queue", projectId).with(user("testuser")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(3));
 
         // 自评「掌握」:mastery 升为 1,nextReview 设为 1 天后
         mvc.perform(post("/api/projects/{id}/cards/{cardId}/review", projectId, cardId)
+                        .with(user("testuser")).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"known\": true}"))
                 .andExpect(status().isOk())
@@ -258,19 +289,20 @@ class ProjectControllerTest {
                 .andExpect(jsonPath("$.nextReview").exists());
 
         // 该卡片(1 天后复习)不再出现在待复习队列
-        mvc.perform(get("/api/projects/{id}/review-queue", projectId))
+        mvc.perform(get("/api/projects/{id}/review-queue", projectId).with(user("testuser")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2));
 
         // 自评「生疏」:mastery 回落,立即复习
         mvc.perform(post("/api/projects/{id}/cards/{cardId}/review", projectId, cardId)
+                        .with(user("testuser")).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"known\": false}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.mastery").value(0));
 
         // 生疏后再次回到队列
-        mvc.perform(get("/api/projects/{id}/review-queue", projectId))
+        mvc.perform(get("/api/projects/{id}/review-queue", projectId).with(user("testuser")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(3));
     }
@@ -280,10 +312,10 @@ class ProjectControllerTest {
         stubAi();
         long projectId = createAndAwait();
 
-        mvc.perform(delete("/api/projects/{id}", projectId))
+        mvc.perform(delete("/api/projects/{id}", projectId).with(user("testuser")).with(csrf()))
                 .andExpect(status().isOk());
 
-        mvc.perform(get("/api/projects/{id}", projectId))
+        mvc.perform(get("/api/projects/{id}", projectId).with(user("testuser")))
                 .andExpect(status().isNotFound());
     }
 
@@ -293,7 +325,7 @@ class ProjectControllerTest {
         long projectId = createAndAwait();
 
         // 触发重新生成:新任务 RUNNING
-        MvcResult regen = mvc.perform(post("/api/projects/{id}/regenerate", projectId))
+        MvcResult regen = mvc.perform(post("/api/projects/{id}/regenerate", projectId).with(user("testuser")).with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.projectId").value(projectId))
                 .andReturn();
@@ -312,14 +344,14 @@ class ProjectControllerTest {
         GenTask latest = tasks.findFirstByProjectIdOrderByIdDesc(projectId).orElseThrow();
         assertTrue(latest.getId() > newTaskId - 1); // 新任务在队列头部
         // 生成成功:卡片重建
-        mvc.perform(get("/api/projects/{id}/cards", projectId))
+        mvc.perform(get("/api/projects/{id}/cards", projectId).with(user("testuser")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(3));
     }
 
     /** 返回项目第一张卡片的 id。 */
     private long firstCardId(long projectId) throws Exception {
-        String json = mvc.perform(get("/api/projects/{id}/cards", projectId))
+        String json = mvc.perform(get("/api/projects/{id}/cards", projectId).with(user("testuser")))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()
@@ -329,6 +361,7 @@ class ProjectControllerTest {
 
     /** 创建项目并轮询到任务终态,返回 projectId。 */
     private long createAndAwait() throws Exception {        MvcResult created = mvc.perform(post("/api/projects")
+                        .with(user("testuser")).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"repoUrl\": \"" + uniqueUrl() + "\"}"))
                 .andExpect(status().isOk())

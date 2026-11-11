@@ -21,6 +21,13 @@ public class Project {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** 归属用户;存量数据为 null,首个注册用户注册时回填。 */
+    @Column(name = "user_id")
+    private Long userId;
+
+    public Long getUserId() { return userId; }
+    public void setUserId(Long userId) { this.userId = userId; }
+
     @Column(nullable = false)
     private String repoUrl;
 
