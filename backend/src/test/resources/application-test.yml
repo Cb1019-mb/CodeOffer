@@ -17,3 +17,5 @@ ai-service:
 auth:
   rate-limit:
     per-minute: 10000
+
+LLM_MASTER_KEY: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
