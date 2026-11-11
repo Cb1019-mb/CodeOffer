@@ -9,8 +9,7 @@ public enum CardType {
     HIGHLIGHT("项目亮点"),
     TAKEAWAY("学习收获"),
     RUN_GUIDE("运行指南"),
-    FLOW_DIAGRAM("核心流程图"),
-    COMPARE_PRACTICE("对比练习");
+    FLOW_DIAGRAM("核心流程图");
 
     private final String label;
 

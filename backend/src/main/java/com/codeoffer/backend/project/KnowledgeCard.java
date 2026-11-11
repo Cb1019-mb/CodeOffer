@@ -37,7 +37,7 @@ public class KnowledgeCard {
     @Column(length = 20000)
     private String aiDraft;
 
-    /** 用户补充输入(如对比练习的实现思路,JSON) */
+    /** 用户补充输入(如运行指南的踩坑记录) */
     @Column(length = 20000)
     private String userInput;
 
