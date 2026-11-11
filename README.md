@@ -114,7 +114,7 @@ LLM_MODEL=deepseek-chat
 BACKEND_PORT=8080
 AI_SERVICE_PORT=8001
 
-# MySQL(后端持久层;库与账号需预先创建,见 docs/database/schema.sql)
+# MySQL(后端持久层;库与账号需预先创建,见 scripts/setup-mysql.sql)
 MYSQL_HOST=127.0.0.1
 MYSQL_PORT=3306
 MYSQL_DB=codeoffer
@@ -123,7 +123,7 @@ MYSQL_PASSWORD=your-password
 ```
 
 > ⚠️ `config/.env` **不入库**（见 `.gitignore`）。若在代理/自签名证书环境遇到 SSL 报错，可追加 `LLM_VERIFY_SSL=false`。
-> MySQL 的库表初始化可执行 `scripts/setup-mysql.sql`（建库建账号）；存量 SQLite 数据迁移用 `scripts/migrate_sqlite_to_mysql.py`。
+> MySQL 初始化执行 `scripts/setup-mysql.sql`：创建 `codeoffer` 库与 `codeoffer_app` 账号（只建库建账号，不建表；表由后端 `ddl-auto: update` 自动生成）。`docs/database/schema.sql` 仅是建表语句参考，以 `DROP TABLE IF EXISTS` 开头、重跑会清空数据，不要当作初始化脚本执行。存量 SQLite 数据迁移用 `scripts/migrate_sqlite_to_mysql.py`。
 
 ### 3.3 一键启动（推荐，Windows）
 
@@ -186,13 +186,26 @@ Compose 会依次构建并启动 `mysql`（3306）、`ai-service`（8001）与 `
 - `backend` 等待 `ai-service` 与 `mysql` 均通过健康检查后才启动，容器内通过 `MYSQL_HOST=mysql` 连接数据库；
 - 宿主机的 `./data` 挂载为 `/data`。MySQL 账号密码仍从 `config/.env` 注入（缺失时按 `.env.example` 补齐）。
 
-> 若本机已有 MySQL 服务占用 3306，可先改 `MYSQL_PORT` 或只启动 `docker compose up -d ai-service backend`。
+> 若本机已有 MySQL 服务占用 3306：
+>
+> - 需要容器发布到 3306 时，先停掉本机服务（管理员权限）：`net stop MySQL`；
+> - 保留本机服务时，在 shell 里为本次调用指定其它宿主机端口（Compose 的 `${MYSQL_PORT:-3306}` 只从 shell 环境或仓库根 `.env` 读取，`config/.env` 仅注入容器内部，改它不影响端口映射）：
+>
+>   ```bash
+>   MYSQL_PORT=3307 docker compose up -d          # Git Bash
+>   ```
+>
+>   ```powershell
+>   $env:MYSQL_PORT="3307"; docker compose up -d  # PowerShell
+>   ```
+>
+> 容器内的 `backend` 仍通过 `mysql:3306` 访问数据库，无需改动 `config/.env`。另外，`docker compose up -d ai-service backend` 并不能避开该冲突：`backend` 依赖 `mysql` 的健康检查，Compose 仍会启动并发布 `mysql`。
 
 ### 3.6 常见问题
 
 | 现象 | 处理 |
 | --- | --- |
-| 端口 3306 被占用 / MySQL 服务未启动 | `net start MySQL`（服务名 `MySQL`）；被别处占用时改 `MYSQL_PORT` 或停掉占用进程 |
+| 端口 3306 被占用 / MySQL 服务未启动 | 本机服务未启动时执行 `net start MySQL`（服务名 `MySQL`）；若本机服务占着 3306 而要用 Compose 的 `mysql`，先 `net stop MySQL`，或在 shell 里设 `MYSQL_PORT` 把容器发布到其它端口（见 3.5）——不要改 `config/.env` 的 `MYSQL_PORT`，它只决定后端 JDBC 连接端口 |
 
 ---
 
