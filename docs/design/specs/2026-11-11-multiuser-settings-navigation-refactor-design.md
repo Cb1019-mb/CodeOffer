@@ -83,7 +83,7 @@ com.codeoffer.backend/
 
 ### 4.3 事务与行为
 
-- `ProjectService.create`（建项目 + 建任务）与 `delete`（四表级联删）加 `@Transactional`；单条 save 依赖 JPA 原子性，不滥加。
+- `ProjectService.delete`（四表级联删）加 `@Transactional`；**create 不得包事务**——`@Async` 生成线程在 READ_COMMITTED 下看不到未提交行，包事务会使生成任务被当作「已删除」跳过；create 的两次 save 依赖 JPA 各自原子性（与现状一致）。单条 save 不滥加事务。
 - 现有全部端点路径、请求/响应结构、状态机流转**不变**；现有 3 个测试类必须原样通过。
 - `REVIEW_INTERVAL_DAYS` 与生疏策略移入 `CardService`（C 阶段仍用默认常量，A 阶段参数化）。
 - 删除 `CardType.COMPARE_PRACTICE`。
