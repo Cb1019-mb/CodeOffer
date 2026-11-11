@@ -31,9 +31,27 @@ public final class ApiViews {
             boolean edited,
             int mastery,
             Instant nextReview) {
+
+        public static CardView from(KnowledgeCard c) {
+            return new CardView(
+                    c.getId(),
+                    c.getType().name(),
+                    c.getType().getLabel(),
+                    c.getTitle(),
+                    c.getContent(),
+                    c.getAiDraft(),
+                    c.getUserInput(),
+                    c.isEdited(),
+                    c.getMastery(),
+                    c.getNextReview());
+        }
     }
 
     public record ResumeView(String starContent, String interviewQas, boolean edited) {
+
+        public static ResumeView from(ResumeEntry r) {
+            return new ResumeView(r.getStarContent(), r.getInterviewQas(), r.isEdited());
+        }
     }
 
     /** 列表项:含掌握度徽标聚合数据(N7 浅做) */
