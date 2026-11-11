@@ -133,4 +133,47 @@ public class AiServiceClient {
     public Map<String, Object> healthReport(String repoUrl, Map<String, Object> meta) {
         return post("/api/ai/health-report", Map.of("repo_url", repoUrl, "meta", meta == null ? Map.of() : meta));
     }
+
+    /** 连接测试:AI 服务单次最小调用;snake_case 转 camelCase 返回。 */
+    public Map<String, Object> testConnection(LlmRuntime rt) {
+        Map<String, Object> resp = post("/api/ai/test-connection", Map.of("llm", llmMap(rt)));
+        Map<String, Object> out = new java.util.HashMap<>();
+        out.put("ok", resp.get("ok"));
+        out.put("latencyMs", resp.get("latency_ms"));
+        out.put("model", resp.get("model"));
+        out.put("error", resp.get("error"));
+        return out;
+    }
+
+    /** 克隆缓存占用(管理员)。 */
+    public Map<String, Object> cacheInfo() {
+        Map<String, Object> resp = get("/api/repos/cache-info");
+        return Map.of("sizeBytes", resp.get("size_bytes"), "repoCount", resp.get("repo_count"));
+    }
+
+    /** 清理克隆缓存(管理员)。 */
+    public Map<String, Object> clearCache() {
+        return post("/api/repos/clear-cache", Map.of());
+    }
+
+    static Map<String, Object> llmMap(LlmRuntime rt) {
+        return Map.of(
+                "base_url", rt.baseUrl(),
+                "api_key", rt.apiKey(),
+                "model", rt.model(),
+                "verify_ssl", rt.verifySsl());
+    }
+
+    private Map<String, Object> get(String path) {
+        try {
+            String resp = rest.get()
+                    .uri(path)
+                    .retrieve()
+                    .body(String.class);
+            return read(resp);
+        } catch (RestClientResponseException e) {
+            String detail = extractDetail(e);
+            throw new IllegalStateException("AI 服务调用失败(HTTP " + e.getStatusCode().value() + "): " + detail);
+        }
+    }
 }
