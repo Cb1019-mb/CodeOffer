@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Alert, Button, Card, Form, Input, Tabs, Typography, message } from 'antd'
+import { Alert, Button, Card, Form, Input, Tabs, Typography, message, theme } from 'antd'
 import { api } from '../api/client'
 import { useAuth } from '../auth/authContext'
 
@@ -13,6 +13,7 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const from = (location.state as { from?: string } | null)?.from ?? '/'
+  const { token } = theme.useToken()
 
   const submit = async (values: { username: string; password: string; captcha: string; confirm?: string }) => {
     setError(null)
@@ -45,7 +46,7 @@ export default function LoginPage() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#f0f2f5',
+        background: token.colorBgLayout,
       }}
     >
       <Card style={{ width: 400 }}>
@@ -101,7 +102,7 @@ export default function LoginPage() {
                 src={`/api/auth/captcha?k=${captchaKey}`}
                 alt="验证码,点击刷新"
                 title="点击刷新"
-                style={{ height: 40, borderRadius: 6, cursor: 'pointer', border: '1px solid #d9d9d9' }}
+                style={{ height: 40, borderRadius: 6, cursor: 'pointer', border: `1px solid ${token.colorBorder}` }}
                 onClick={() => setCaptchaKey((k) => k + 1)}
               />
             </div>

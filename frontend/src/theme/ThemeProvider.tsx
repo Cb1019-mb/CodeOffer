@@ -30,8 +30,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => mq.removeEventListener('change', onChange)
   }, [mode])
 
+  // 供 CSS 变量(代码块/自动填充/滚动条)与原生控件跟随明暗主题
+  useEffect(() => {
+    const root = document.documentElement
+    root.dataset.theme = dark ? 'dark' : 'light'
+    root.style.colorScheme = dark ? 'dark' : 'light'
+  }, [dark])
+
   return (
-    <ThemeContext value={{ mode, setMode }}>
+    <ThemeContext value={{ mode, dark, setMode }}>
       <ConfigProvider
         locale={zhCN}
         theme={{ algorithm: dark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm }}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Button, Card, Empty, Result, Space, Statistic, Tag, Typography, message } from 'antd'
+import { Button, Card, Empty, Input, Result, Space, Statistic, Tag, Typography, message, theme } from 'antd'
 import { CheckOutlined, CloseOutlined, EyeOutlined } from '@ant-design/icons'
 import { api } from '../api/client'
 import type { CardView } from '../types'
@@ -12,16 +12,18 @@ interface Props {
 
 /**
  * N1 主动回忆自测:卡片转问题卡(正面=标题问题,背面=内容答案),
- * 翻面核对后自评「掌握/生疏」,更新 mastery 与 next_review。
+ * 可先写下自己的答案,翻面后与参考答案对照,再自评「掌握/生疏」,更新 mastery 与 next_review。
  */
 export default function QuizMode({ projectId, onDone }: Props) {
   const [queue, setQueue] = useState<CardView[] | null>(null)
   const [index, setIndex] = useState(0)
   const [flipped, setFlipped] = useState(false)
+  const [answer, setAnswer] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [knownCount, setKnownCount] = useState(0)
   const [unknownCount, setUnknownCount] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const { token } = theme.useToken()
 
   const load = useCallback(async () => {
     try {
@@ -83,6 +85,7 @@ export default function QuizMode({ projectId, onDone }: Props) {
       if (known) setKnownCount((n) => n + 1)
       else setUnknownCount((n) => n + 1)
       setFlipped(false)
+      setAnswer('')
       setIndex((i) => i + 1)
     } catch (e) {
       message.error((e as Error).message)
@@ -109,17 +112,50 @@ export default function QuizMode({ projectId, onDone }: Props) {
           <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>
             请先凭记忆用自己的话讲清楚这张卡片的内容,再翻面核对答案。
           </Typography.Paragraph>
+          <Input.TextArea
+            value={answer}
+            onChange={(e) => setAnswer(e.target.value)}
+            autoSize={{ minRows: 2, maxRows: 6 }}
+            placeholder="写下你的答案(可选),翻面后与参考答案对照"
+            style={{ textAlign: 'left', marginBottom: 16 }}
+          />
           <Button type="primary" icon={<EyeOutlined />} onClick={() => setFlipped(true)}>
             显示答案
           </Button>
         </div>
       ) : (
         <div>
+          {answer.trim() && (
+            <div style={{ marginBottom: 16 }}>
+              <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
+                我的答案
+              </Typography.Text>
+              <div
+                style={{
+                  background: token.colorFillQuaternary,
+                  border: `1px solid ${token.colorBorderSecondary}`,
+                  borderRadius: token.borderRadius,
+                  padding: 12,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  maxHeight: 200,
+                  overflow: 'auto',
+                }}
+              >
+                {answer.trim()}
+              </div>
+            </div>
+          )}
+          <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
+            参考答案
+          </Typography.Text>
           <div style={{ maxHeight: 320, overflow: 'auto', marginBottom: 16 }}>
             <MarkdownRenderer content={card.content ?? card.aiDraft ?? ''} />
           </div>
           <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-            对照答案自评:讲对了点「掌握」,讲不清点「生疏」(生疏的卡片稍后会再次进入复习队列)。
+            {answer.trim()
+              ? '对照你的答案与参考答案自评:讲对了点「掌握」,讲不清点「生疏」(生疏的卡片稍后会再次进入复习队列)。'
+              : '对照答案自评:讲对了点「掌握」,讲不清点「生疏」(生疏的卡片稍后会再次进入复习队列)。'}
           </Typography.Text>
           <Space>
             <Button type="primary" icon={<CheckOutlined />} loading={submitting} onClick={() => selfRate(true)}>
