@@ -13,6 +13,11 @@ class CloneRequest(BaseModel):
         max_length=500,
         description="GitHub 仓库地址,如 https://github.com/octocat/Hello-World",
     )
+    proxy: str | None = Field(
+        None,
+        max_length=200,
+        description="可选克隆代理(http/https/socks5),如 http://127.0.0.1:7890;缺省直连",
+    )
 
 
 class CloneResponse(BaseModel):

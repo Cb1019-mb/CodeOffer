@@ -44,6 +44,7 @@ public class GenerateService {
     private final ObjectMapper mapper;
     private final GenerationWriter writer;
     private final com.codeoffer.backend.settings.ProfileService profileService;
+    private final com.codeoffer.backend.settings.SettingsService settings;
 
     /** 全局生成锁:同一时间只允许一个生成任务,限制并发 LLM 调用并串行写入。 */
     private final ReentrantLock generationLock = new ReentrantLock();
@@ -56,7 +57,8 @@ public class GenerateService {
             AiServiceClient ai,
             ObjectMapper mapper,
             GenerationWriter writer,
-            com.codeoffer.backend.settings.ProfileService profileService) {
+            com.codeoffer.backend.settings.ProfileService profileService,
+            com.codeoffer.backend.settings.SettingsService settings) {
         this.projects = projects;
         this.cards = cards;
         this.resumes = resumes;
@@ -65,6 +67,7 @@ public class GenerateService {
         this.mapper = mapper;
         this.writer = writer;
         this.profileService = profileService;
+        this.settings = settings;
     }
 
     @Async
@@ -112,12 +115,13 @@ public class GenerateService {
             return;
         }
         try {
-            // 0) 用户 LLM 配置快照:生成中途切换档案不影响本次任务
+            // 0) 用户 LLM 配置与网络代理快照:生成中途改设置不影响本次任务
             LlmRuntime rt = profileService.runtimeFor(userId);
+            String proxyUrl = settings.networkFor(userId).proxyUrl();
 
             // 1) 克隆
             transition(project, task, ProjectStatus.CLONING, 5);
-            String repoDir = ai.cloneRepo(project.getRepoUrl());
+            String repoDir = ai.cloneRepo(project.getRepoUrl(), proxyUrl);
             project.setRepoDir(repoDir);
             saveProject(project);
 

@@ -89,13 +89,35 @@ def validate_repo_url(repo_url: str) -> None:
             "仅支持受信任的仓库托管平台: " + " / ".join(sorted(ALLOWED_REPO_HOSTS))
         )
 
+
+PROXY_SCHEMES = {"http", "https", "socks5", "socks5h"}
+
+
+def validate_proxy(proxy: str) -> None:
+    """校验克隆代理:仅 http/https/socks5(h),需主机名,拒绝凭证与路径/参数。"""
+    try:
+        parts = urlsplit(proxy)
+        port = parts.port
+    except ValueError as e:
+        raise RepoError("代理地址格式不合法") from e
+    if parts.scheme.lower() not in PROXY_SCHEMES:
+        raise RepoError("代理仅支持 http / https / socks5 协议")
+    if not parts.hostname:
+        raise RepoError("代理地址需包含主机名,如 http://127.0.0.1:7890")
+    if parts.username or parts.password:
+        raise RepoError("代理地址不能携带凭证(user:pass@)")
+    if port is not None and not 1 <= port <= 65535:
+        raise RepoError("代理端口需为 1-65535")
+    if parts.path not in ("", "/") or parts.query or parts.fragment:
+        raise RepoError("代理地址不应包含路径或参数")
+
 # 常见克隆失败原因 → 友好中文提示(按关键词匹配 stderr)
 NETWORK_HINTS = {
     "could not resolve host": "DNS 解析失败,请检查网络连接,或更换 DNS(如 223.5.5.5 / 114.114.114.114)",
-    "schannel": "TLS 连接被中断,github 等境外站点可能被网络策略阻断,请配置代理或改用可访问的镜像地址",
+    "schannel": "TLS 连接被中断,github 等境外站点可能被网络策略阻断,请在 设置 → 生成偏好 配置网络代理,或改用可访问的镜像地址",
     "certificate": "SSL 证书验证失败,请检查系统时间或代理证书,也可考虑 git -c http.sslVerify=false 临时绕过",
-    "unable to access": "仓库地址不可达,请检查网络/代理,或改用可访问的镜像(如 gitee)",
-    "connection was reset": "连接被重置,境外站点被网络策略阻断,请配置代理后重试",
+    "unable to access": "仓库地址不可达,请在 设置 → 生成偏好 配置网络代理,或改用可访问的镜像(如 gitee)",
+    "connection was reset": "连接被重置,境外站点被网络策略阻断,请在 设置 → 生成偏好 配置网络代理后重试",
     "timed out": "连接超时,请检查网络后重试",
     "authentication failed": "认证失败,私有仓库请先在托管平台/本机配置访问凭证",
     "repository not found": "仓库不存在或已被删除,请检查 URL 是否正确",
@@ -127,14 +149,24 @@ class RepoError(Exception):
     """仓库抓取/解析失败。"""
 
 
-def clone_repo(repo_url: str, dest_dir: str | os.PathLike, *, depth: int = 1) -> str:
+def clone_repo(
+    repo_url: str,
+    dest_dir: str | os.PathLike,
+    *,
+    depth: int = 1,
+    proxy: str | None = None,
+) -> str:
     """浅克隆仓库到 dest_dir(目录名取 URL 的稳定 hash),返回实际仓库目录路径。
 
     已存在(缓存命中)时直接返回,不重复克隆。
     并发安全:同 URL 通过锁串行化;克隆在临时目录完成后原子改名为目标,避免半成品污染缓存。
+    proxy 非空时经其克隆(git/curl 读 *_PROXY 环境变量),用于访问境外仓库。
     """
     repo_url = repo_url.strip()
     validate_repo_url(repo_url)
+    proxy = (proxy or "").strip()
+    if proxy:
+        validate_proxy(proxy)
     dest = Path(dest_dir)
     dest.mkdir(parents=True, exist_ok=True)
     key = _normalize_url(repo_url)
@@ -152,18 +184,33 @@ def clone_repo(repo_url: str, dest_dir: str | os.PathLike, *, depth: int = 1) ->
             # 上次失败的残留,锁内清理(同 URL 才可能进入此分支)
             shutil.rmtree(target, ignore_errors=True)
         staging = dest / f"{name}.tmp-{uuid.uuid4().hex[:8]}"
+        # env 是整体替换而非合并,必须带上 os.environ(Windows 上丢失 PATH/SystemRoot 会找不到 git)
+        env = {
+            **os.environ,
+            "GIT_HTTP_LOW_SPEED_LIMIT": "1000",
+            "GIT_HTTP_LOW_SPEED_TIME": "60",
+        }
+        if proxy:
+            # git(libcurl)对 http_proxy 只认小写、https_proxy 大小写均可;统一双写确保生效
+            for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+                env[key] = proxy
+            # 用户 git 全局/系统配置中的 http.proxy 或 http.<url>.proxy 优先级高于环境变量,
+            # 陈旧代理会覆盖本设置;GIT_CONFIG_* 等价 -c(最高优先级),显式覆盖通用与按主机两条键。
+            parts = urlsplit(repo_url)
+            cfg = {"http.proxy": proxy}
+            if parts.scheme in ("http", "https") and parts.hostname:
+                cfg[f"http.{parts.scheme}://{parts.hostname}.proxy"] = proxy
+            env["GIT_CONFIG_COUNT"] = str(len(cfg))
+            for i, (k, v) in enumerate(cfg.items()):
+                env[f"GIT_CONFIG_KEY_{i}"] = k
+                env[f"GIT_CONFIG_VALUE_{i}"] = v
         try:
             Repo.clone_from(
                 repo_url,
                 str(staging),
                 depth=depth,
                 single_branch=True,
-                # env 是整体替换而非合并,必须带上 os.environ(Windows 上丢失 PATH/SystemRoot 会找不到 git)
-                env={
-                    **os.environ,
-                    "GIT_HTTP_LOW_SPEED_LIMIT": "1000",
-                    "GIT_HTTP_LOW_SPEED_TIME": "60",
-                },
+                env=env,
             )
             shutil.move(str(staging), str(target))
             marker.write_text("ok", encoding="utf-8")

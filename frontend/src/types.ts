@@ -92,10 +92,15 @@ export interface GenerationPrefs {
   verbosity: string
 }
 
+export interface NetworkPrefs {
+  proxyUrl: string
+}
+
 export interface SettingsView {
   activeProfileId: number | null
   review: ReviewParams
   generation: GenerationPrefs
+  network: NetworkPrefs
 }
 
 export interface TestResult {

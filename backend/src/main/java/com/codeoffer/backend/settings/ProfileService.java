@@ -86,7 +86,7 @@ public class ProfileService {
 
     public void activate(Long userId, Long id) {
         requireProfile(userId, id);
-        settings.update(userId, id, null, null);
+        settings.update(userId, id, null, null, null);
     }
 
     public Map<String, Object> test(Long userId, Long id) {

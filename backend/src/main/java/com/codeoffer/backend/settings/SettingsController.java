@@ -22,7 +22,8 @@ public class SettingsController {
     public record UpdateSettingsRequest(
             Long activeProfileId,
             SettingsService.ReviewParams review,
-            SettingsService.GenerationPrefs generation) {
+            SettingsService.GenerationPrefs generation,
+            SettingsService.NetworkPrefs network) {
     }
 
     private final SettingsService settings;
@@ -56,7 +57,7 @@ public class SettingsController {
         if (req.activeProfileId() != null) {
             profileService.requireProfile(uid, req.activeProfileId());
         }
-        settings.update(uid, req.activeProfileId(), req.review(), req.generation());
+        settings.update(uid, req.activeProfileId(), req.review(), req.generation(), req.network());
     }
 
     @GetMapping("/llm-profiles")

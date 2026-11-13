@@ -1,6 +1,8 @@
 package com.codeoffer.backend.settings;
 
 import com.codeoffer.backend.common.ApiException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -17,16 +19,22 @@ public class SettingsService {
     public record GenerationPrefs(String language, String verbosity) {
     }
 
-    public record SettingsView(Long activeProfileId, ReviewParams review, GenerationPrefs generation) {
+    /** 网络偏好:仓库克隆代理(http/https/socks5),空串表示直连。 */
+    public record NetworkPrefs(String proxyUrl) {
+    }
+
+    public record SettingsView(Long activeProfileId, ReviewParams review, GenerationPrefs generation, NetworkPrefs network) {
     }
 
     public static final String KEY_ACTIVE = "active_profile_id";
     public static final String KEY_REVIEW = "review_params";
     public static final String KEY_GENERATION = "generation_prefs";
+    public static final String KEY_NETWORK = "network_prefs";
 
     private static final ReviewParams DEFAULT_REVIEW =
             new ReviewParams(List.of(0, 1, 3, 7, 15, 30), 2, 60);
     private static final GenerationPrefs DEFAULT_GENERATION = new GenerationPrefs("zh", "standard");
+    private static final NetworkPrefs DEFAULT_NETWORK = new NetworkPrefs("");
 
     private final AppSettingRepository settings;
     private final ObjectMapper mapper;
@@ -37,7 +45,7 @@ public class SettingsService {
     }
 
     public SettingsView get(Long userId) {
-        return new SettingsView(activeProfileId(userId), reviewFor(userId), generationFor(userId));
+        return new SettingsView(activeProfileId(userId), reviewFor(userId), generationFor(userId), networkFor(userId));
     }
 
     public Long activeProfileId(Long userId) {
@@ -52,8 +60,12 @@ public class SettingsService {
         return read(userId, KEY_GENERATION, GenerationPrefs.class, DEFAULT_GENERATION);
     }
 
+    public NetworkPrefs networkFor(Long userId) {
+        return read(userId, KEY_NETWORK, NetworkPrefs.class, DEFAULT_NETWORK);
+    }
+
     /** 局部更新:null 字段不改。 */
-    public void update(Long userId, Long activeProfileId, ReviewParams review, GenerationPrefs generation) {
+    public void update(Long userId, Long activeProfileId, ReviewParams review, GenerationPrefs generation, NetworkPrefs network) {
         if (activeProfileId != null) {
             write(userId, KEY_ACTIVE, activeProfileId);
         }
@@ -64,6 +76,10 @@ public class SettingsService {
         if (generation != null) {
             validateGeneration(generation);
             write(userId, KEY_GENERATION, generation);
+        }
+        if (network != null) {
+            validateNetwork(network);
+            write(userId, KEY_NETWORK, new NetworkPrefs(network.proxyUrl() == null ? "" : network.proxyUrl().trim()));
         }
     }
 
@@ -93,6 +109,38 @@ public class SettingsService {
         }
         if (!List.of("concise", "standard", "detailed").contains(g.verbosity())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "篇幅仅支持 concise / standard / detailed");
+        }
+    }
+
+    private void validateNetwork(NetworkPrefs n) {
+        String url = n.proxyUrl() == null ? "" : n.proxyUrl().trim();
+        if (url.isEmpty()) {
+            return;
+        }
+        URI uri;
+        try {
+            uri = new URI(url);
+        } catch (URISyntaxException e) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "代理地址格式不合法");
+        }
+        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase();
+        if (!List.of("http", "https", "socks5", "socks5h").contains(scheme)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "代理仅支持 http / https / socks5 协议");
+        }
+        if (uri.getHost() == null || uri.getHost().isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "代理地址需包含主机名,如 http://127.0.0.1:7890");
+        }
+        if (uri.getUserInfo() != null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "代理地址不能携带凭证(user:pass@)");
+        }
+        int port = uri.getPort();
+        if (port != -1 && (port < 1 || port > 65535)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "代理端口需为 1-65535");
+        }
+        String path = uri.getPath();
+        if ((path != null && !path.isEmpty() && !path.equals("/"))
+                || uri.getQuery() != null || uri.getFragment() != null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "代理地址不应包含路径或参数");
         }
     }
 

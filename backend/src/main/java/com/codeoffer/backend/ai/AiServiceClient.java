@@ -99,9 +99,14 @@ public class AiServiceClient {
         }
     }
 
-    /** 克隆仓库,返回本地目录路径;缓存命中直接返回。 */
-    public String cloneRepo(String repoUrl) {
-        Map<String, Object> resp = post("/api/repos/clone", Map.of("repo_url", repoUrl));
+    /** 克隆仓库,返回本地目录路径;缓存命中直接返回。proxyUrl 为空则直连。 */
+    public String cloneRepo(String repoUrl, String proxyUrl) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("repo_url", repoUrl);
+        if (proxyUrl != null && !proxyUrl.isBlank()) {
+            body.put("proxy", proxyUrl.trim());
+        }
+        Map<String, Object> resp = post("/api/repos/clone", body);
         return (String) resp.get("repo_dir");
     }
 

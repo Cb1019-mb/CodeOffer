@@ -5,6 +5,7 @@ import type {
   CreateResponse,
   GenerationPrefs,
   LlmProfileView,
+  NetworkPrefs,
   ProfileInput,
   ProjectDetail,
   ProjectView,
@@ -140,7 +141,7 @@ export const api = {
 
   // 设置:聚合与档案
   settingsGet: () => request<SettingsView>('/api/settings'),
-  settingsPut: (body: { activeProfileId?: number; review?: ReviewParams; generation?: GenerationPrefs }) =>
+  settingsPut: (body: { activeProfileId?: number; review?: ReviewParams; generation?: GenerationPrefs; network?: NetworkPrefs }) =>
     request<void>('/api/settings', { method: 'PUT', body: JSON.stringify(body) }),
   profilesList: () => request<LlmProfileView[]>('/api/settings/llm-profiles'),
   profileCreate: (body: ProfileInput) =>

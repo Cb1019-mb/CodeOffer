@@ -73,7 +73,7 @@ def health() -> dict:
 def clone(req: CloneRequest) -> CloneResponse:
     """浅克隆仓库到本地缓存目录(缓存命中直接返回)。"""
     try:
-        repo_dir = clone_repo(req.repo_url, REPO_DATA_DIR)
+        repo_dir = clone_repo(req.repo_url, REPO_DATA_DIR, proxy=req.proxy)
     except RepoError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     return CloneResponse(ok=True, repo_dir=repo_dir)
