@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -59,7 +60,7 @@ class SettingsInjectionTest {
     void generation_carriesUserProfile() throws Exception {
         TestSupport.seedWithProfile(users, encoder, profiles, settings, crypto,
                 "inject_user", "https://profile.test/v1", "profile-key", "profile-model");
-        when(ai.cloneRepo(anyString())).thenReturn("C:/fake");
+        when(ai.cloneRepo(anyString(), any())).thenReturn("C:/fake");
         when(ai.analyze(anyString())).thenReturn(Map.of("name", "x"));
         when(ai.healthReport(anyString(), any(), any())).thenReturn(null);
         when(ai.knowledgeCards(any(), anyList(), any())).thenReturn(Map.of("cards", List.of()));
@@ -78,5 +79,27 @@ class SettingsInjectionTest {
         assertEquals("https://profile.test/v1", cap.getValue().baseUrl());
         assertEquals("profile-key", cap.getValue().apiKey());
         assertEquals("profile-model", cap.getValue().model());
+    }
+
+    @Test
+    void generation_carriesNetworkProxy() throws Exception {
+        Long uid = TestSupport.seedWithProfile(users, encoder, profiles, settings, crypto,
+                "inject_proxy_user", "https://profile.test/v1", "profile-key", "profile-model");
+        settings.update(uid, null, null, null, new SettingsService.NetworkPrefs("http://127.0.0.1:7890"));
+        when(ai.cloneRepo(anyString(), any())).thenReturn("C:/fake");
+        when(ai.analyze(anyString())).thenReturn(Map.of("name", "x"));
+        when(ai.healthReport(anyString(), any(), any())).thenReturn(null);
+        when(ai.knowledgeCards(any(), anyList(), any())).thenReturn(Map.of("cards", List.of()));
+        when(ai.flowDiagram(any(), any())).thenReturn(Map.of("title", "t", "description", "d", "mermaid", "m"));
+        when(ai.resume(any(), any())).thenReturn(Map.of("star", Map.of()));
+        when(ai.interviewQuestions(any(), any())).thenReturn(Map.of("questions", List.of()));
+
+        mvc.perform(post("/api/projects").with(user("inject_proxy_user")).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"repoUrl\": \"https://github.com/octocat/inject-proxy-" + System.nanoTime() + "\"}"))
+                .andExpect(status().isOk());
+        Thread.sleep(1500);
+
+        verify(ai).cloneRepo(anyString(), eq("http://127.0.0.1:7890"));
     }
 }

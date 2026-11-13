@@ -75,7 +75,7 @@ class GenerateFlowIntegrationTest {
     }
 
     private void stubAiSuccess() {
-        when(ai.cloneRepo(anyString())).thenReturn("C:/fake/repo");
+        when(ai.cloneRepo(anyString(), any())).thenReturn("C:/fake/repo");
         when(ai.analyze(anyString())).thenReturn(
                 Map.of("name", "fake", "languages", List.of(), "core_files", List.of(),
                         "stats", Map.of("file_count", 1), "tree", List.of()));
@@ -134,7 +134,7 @@ class GenerateFlowIntegrationTest {
 
     @Test
     void failure_setsProjectAndTaskFailed() throws Exception {
-        when(ai.cloneRepo(anyString())).thenThrow(new RuntimeException("克隆失败:网络不可达"));
+        when(ai.cloneRepo(anyString(), any())).thenThrow(new RuntimeException("克隆失败:网络不可达"));
         Project p = newProject("https://github.com/a/b");
 
         GenTask task = new GenTask();

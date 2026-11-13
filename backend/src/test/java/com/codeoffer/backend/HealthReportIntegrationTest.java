@@ -55,7 +55,7 @@ class HealthReportIntegrationTest {
     }
 
     private void stubAi() {
-        when(ai.cloneRepo(anyString())).thenReturn("C:/fake/repo");
+        when(ai.cloneRepo(anyString(), any())).thenReturn("C:/fake/repo");
         when(ai.analyze(anyString())).thenReturn(
                 Map.of("name", "fake", "languages", List.of(), "core_files", List.of(),
                         "stats", Map.of("file_count", 1), "tree", List.of()));

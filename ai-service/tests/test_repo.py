@@ -152,3 +152,70 @@ def test_clone_failure_cleans_remnant_dir(monkeypatch, tmp_path: Path):
     with pytest.raises(RepoError):
         clone_repo(url, str(tmp_path))
     assert not remnant.exists(), "残留目录应被清理"
+
+
+def test_clone_injects_proxy_env(monkeypatch, tmp_path: Path):
+    """配置代理后,git 子进程应携带 *_PROXY 环境变量(大小写双写)。"""
+    from git import Repo
+
+    import services.repo as repo_module
+
+    captured = {}
+
+    def fake_clone(url, target, *args, **kwargs):
+        captured["env"] = kwargs.get("env")
+        from pathlib import Path as _Path
+
+        _Path(target).mkdir(parents=True, exist_ok=True)
+        return None
+
+    monkeypatch.setattr(Repo, "clone_from", fake_clone)
+    repo_module.clone_repo(
+        "https://github.com/octocat/Hello-World", str(tmp_path), proxy="http://127.0.0.1:7890"
+    )
+    env = captured["env"]
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        assert env[key] == "http://127.0.0.1:7890"
+    # GIT_CONFIG_* 覆盖用户 git 配置里可能陈旧的 http.proxy / http.<url>.proxy
+    assert env["GIT_CONFIG_COUNT"] == "2"
+    pairs = {env[f"GIT_CONFIG_KEY_{i}"]: env[f"GIT_CONFIG_VALUE_{i}"] for i in range(2)}
+    assert pairs["http.proxy"] == "http://127.0.0.1:7890"
+    assert pairs["http.https://github.com.proxy"] == "http://127.0.0.1:7890"
+
+
+def test_clone_without_proxy_inherits_env(monkeypatch, tmp_path: Path):
+    """未配置代理时不强写代理环境变量,保持进程继承值。"""
+    import os
+
+    from git import Repo
+
+    import services.repo as repo_module
+
+    captured = {}
+
+    def fake_clone(url, target, *args, **kwargs):
+        captured["env"] = kwargs.get("env")
+        from pathlib import Path as _Path
+
+        _Path(target).mkdir(parents=True, exist_ok=True)
+        return None
+
+    monkeypatch.setattr(Repo, "clone_from", fake_clone)
+    repo_module.clone_repo("https://github.com/octocat/Hello-World", str(tmp_path))
+    assert captured["env"].get("HTTPS_PROXY") == os.environ.get("HTTPS_PROXY")
+
+
+def test_clone_rejects_unsafe_proxy(tmp_path: Path):
+    """非法代理(协议/凭证/端口/路径)应在克隆前被拒绝。"""
+    from services.repo import clone_repo
+
+    for bad in (
+        "ftp://127.0.0.1:7890",
+        "http://user:pass@127.0.0.1:7890",
+        "http://127.0.0.1:99999",
+        "http://127.0.0.1:7890/path",
+        "127.0.0.1:7890",
+        "http://:7890",
+    ):
+        with pytest.raises(RepoError):
+            clone_repo("https://github.com/x/y", str(tmp_path), proxy=bad)

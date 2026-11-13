@@ -85,7 +85,7 @@ class ProjectControllerTest {
     }
 
     private void stubAi() {
-        when(ai.cloneRepo(anyString())).thenReturn("C:/fake/repo");
+        when(ai.cloneRepo(anyString(), any())).thenReturn("C:/fake/repo");
         when(ai.analyze(anyString())).thenReturn(
                 Map.of("name", "fake", "languages", List.of(), "core_files", List.of(),
                         "stats", Map.of("file_count", 1), "tree", List.of()));
@@ -179,16 +179,29 @@ class ProjectControllerTest {
     void createDuplicateUrl_conflict() throws Exception {
         stubAi();
         String url = uniqueUrl();
-        mvc.perform(post("/api/projects")
+        MvcResult first = mvc.perform(post("/api/projects")
                         .with(user("testuser")).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"repoUrl\": \"" + url + "\"}"))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andReturn();
         mvc.perform(post("/api/projects")
                         .with(user("testuser")).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"repoUrl\": \"" + url + "\"}"))
                 .andExpect(status().isConflict());
+
+        // 等待异步生成结束:否则残留线程会在后续测试 re-stub 共享 mock 时调用它,触发 Mockito 跨线程误用
+        long projectId = new tools.jackson.databind.ObjectMapper()
+                .readTree(first.getResponse().getContentAsString())
+                .get("projectId").asLong();
+        for (int i = 0; i < 100; i++) {
+            GenTask t = tasks.findFirstByProjectIdOrderByIdDesc(projectId).orElseThrow();
+            if (t.getStatus() == TaskStatus.DONE || t.getStatus() == TaskStatus.FAILED) {
+                break;
+            }
+            Thread.sleep(100);
+        }
     }
 
     @Test

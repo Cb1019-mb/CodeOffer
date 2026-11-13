@@ -44,7 +44,7 @@ public final class TestSupport {
         p.setModel(model);
         p.setVerifySsl(true);
         p = profiles.save(p);
-        settings.update(u.getId(), p.getId(), null, null);
+        settings.update(u.getId(), p.getId(), null, null, null);
         return u.getId();
     }
 }

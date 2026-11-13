@@ -118,3 +118,21 @@ def test_clone_endpoint_cached(monkeypatch, tmp_path: Path):
     resp = client.post("/api/repos/clone", json={"repo_url": "https://github.com/a/b"})
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
+
+
+def test_clone_endpoint_passes_proxy(monkeypatch, tmp_path: Path):
+    """clone 端点应把 proxy 透传给 clone_repo。"""
+    captured = {}
+
+    def fake_clone(repo_url, dest_dir, **kwargs):
+        captured["proxy"] = kwargs.get("proxy")
+        return str(tmp_path / "r")
+
+    monkeypatch.setattr(main_module, "clone_repo", fake_clone)
+    monkeypatch.setattr(main_module, "REPO_DATA_DIR", tmp_path / "cache")
+    resp = client.post(
+        "/api/repos/clone",
+        json={"repo_url": "https://github.com/a/b", "proxy": "http://127.0.0.1:7890"},
+    )
+    assert resp.status_code == 200
+    assert captured["proxy"] == "http://127.0.0.1:7890"
